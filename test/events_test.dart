@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:timezone/data/latest.dart' as tz;
+import 'package:zurich_games/activities/app_shell.dart';
 import 'package:zurich_games/events/event_service.dart';
 import 'package:zurich_games/events/events_screen.dart';
+
+import 'activities_test.dart' show FakeActivities;
 
 const eventId = '3fce16ca-5c0f-419f-b803-7e2ae0f8e0c5';
 const eventTitle = 'Community rowing';
@@ -110,6 +113,36 @@ void main() {
   setUpAll(() async {
     tz.initializeTimeZones();
     await initializeDateFormatting('en');
+  });
+
+  testWidgets('Search and Events remain distinct beside Profile', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AppShell(
+          userId: 'test-id',
+          username: 'alex',
+          profile: const Center(child: Text('Profile content')),
+          activities: FakeActivities(),
+          events: _FakeEvents(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(NavigationDestination), findsNWidgets(5));
+
+    await _tap(tester, find.text('Search'));
+    expect(find.text('Around you'), findsOneWidget);
+    expect(find.text('Darts, drinks & new faces'), findsOneWidget);
+    expect(find.text(eventTitle), findsNothing);
+
+    await _tap(tester, find.text('Events'));
+    expect(find.text(eventTitle), findsOneWidget);
+    expect(find.text('Around you'), findsNothing);
+
+    await _tap(tester, find.text('Profile'));
+    expect(find.text('Profile content'), findsOneWidget);
   });
 
   testWidgets('Guests filter events and can sign in from a detail', (
