@@ -4,12 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'auth_service.dart';
+import '../friends/friend_service.dart';
+import '../friends/friends_section.dart';
 
 enum AuthPage { welcome, login, register, verify, forgot, reset, profile }
 
 class AuthScreen extends StatefulWidget {
-  const AuthScreen({super.key, required this.service});
+  const AuthScreen({super.key, required this.service, this.friends});
   final AuthService service;
+  final FriendService? friends;
   @override
   State<AuthScreen> createState() => _AuthScreenState();
 }
@@ -305,6 +308,11 @@ class _AuthScreenState extends State<AuthScreen> {
             title: const Text('Member since'),
             subtitle: Text((profile['created_at'] as String).split('T').first),
           ),
+          if (widget.friends != null)
+            FriendsSection(
+              key: ValueKey(auth.user?.id),
+              service: widget.friends!,
+            ),
           const SizedBox(height: 24),
           FilledButton(
             onPressed: _busy
@@ -373,6 +381,12 @@ class _AuthScreenState extends State<AuthScreen> {
                       ),
                       const SizedBox(height: 12),
                       if (_page == AuthPage.welcome) ...[
+                        if (widget.friends?.pendingToken != null) ...[
+                          const Text(
+                            'Friend invitation received. Sign in or create an account to continue.',
+                          ),
+                          const SizedBox(height: 16),
+                        ],
                         const Text(
                           'Discover something to do. Meet people to do it with.',
                         ),

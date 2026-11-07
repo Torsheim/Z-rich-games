@@ -1,6 +1,6 @@
 # City Together
 
-Flutter app for discovering activities and meeting people in a city. The first feature is English-language user authentication. Organizer accounts and activities are not implemented yet.
+Flutter app for discovering activities and meeting people in a city. The first feature is English-language user authentication. Mutual friendships via QR codes and invitation links are also implemented. Organizer accounts and activities are not implemented yet.
 
 ## Implemented
 
@@ -27,6 +27,20 @@ Open the app at http://localhost:3000 and the local test mailbox at http://127.0
 The script starts the local Supabase database, applies migrations on first initialization, writes the ignored `config.local.json`, serves the deletion function and starts Flutter. The first run downloads Docker images. Stop Flutter with Ctrl+C; the database remains running so test accounts persist. Use `supabase stop` to stop the backend without deleting its data.
 
 The configuration targets a browser on this computer. A physical phone needs a reachable backend address instead of loopback.
+
+## Friends: QR codes and invitation links
+
+On your profile, open **My QR code & link** to show your personal invitation. Another signed-in user can scan it with **Scan a QR code** or open the copied link. A dialog shows the inviter's username; **Add friend** creates one mutual friendship. Canceling or merely viewing the invitation creates nothing. No username search or direct add-by-user-ID endpoint is provided.
+
+Invitations are reusable for seven days. **Replace invitation** immediately revokes the previous code/link; existing friendships remain. Both users see each other under **Friends**, with realtime updates and a refresh fallback. Self-invitations, invalid/expired tokens and repeated acceptance are handled. Account deletion cascades to friendships and invitations. Only the two participants can read their friendship, and the friend-list RPC exposes usernames rather than email addresses.
+
+To test on this computer, create two users in separate browser profiles (or normal/incognito windows). Copy the first user's invitation link and open it in the second window. If signed out, sign in or register first: the invitation is stored locally and confirmation opens after login. The web link and the scanner feed the same confirmation flow. `python3 scripts/check_local_friends.py` exercises real local mutual friendships, RLS, token rotation and account deletion using disposable users.
+
+For an existing cloud backend, apply **both** files in `supabase/migrations/` in order (or use `supabase db push`). Local upgrades use `supabase migration up`; no database reset is needed.
+
+Browser links use the app's current address by default. Set optional `APP_PUBLIC_URL` in your Dart configuration to the deployed HTTPS app URL when sharing across devices. A localhost link only reaches this computer. Browser camera scanning requires HTTPS or localhost and camera permission. The scanner handles denied/unavailable cameras, and invitation links can also be pasted via **Open invitation link**.
+
+Native builds support `citytogether://friend?friend=TOKEN` for installed apps (including cold and warm launch). Without `APP_PUBLIC_URL`, native invitations use this scheme. If using an HTTPS `APP_PUBLIC_URL`, links open the hosted web app; verified iOS Universal Links/Android App Links require a deployed domain and its association files before HTTPS links can directly launch the installed app. iOS camera usage text and Android camera permissions are included. Real camera scanning and native-device launch still require device testing.
 
 ## Connect Supabase
 

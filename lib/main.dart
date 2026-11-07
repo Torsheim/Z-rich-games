@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'auth/auth_service.dart';
 import 'auth/auth_screen.dart';
+import 'friends/friend_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -11,9 +12,22 @@ Future<void> main() async {
   const key = String.fromEnvironment('SUPABASE_ANON_KEY');
   AuthService? service;
   String? setupError;
+  FriendService? friends;
   if (url.isNotEmpty && key.isNotEmpty) {
     try {
       await Supabase.initialize(url: url, publishableKey: key);
+      const publicUrl = String.fromEnvironment('APP_PUBLIC_URL');
+      final base = publicUrl.isNotEmpty
+          ? Uri.parse(publicUrl)
+          : Uri.base.scheme.startsWith('http')
+          ? Uri.base.replace(query: '', fragment: '')
+          : Uri.parse('citytogether://friend');
+      friends = FriendService(
+        Supabase.instance.client,
+        await SharedPreferences.getInstance(),
+        base,
+      );
+      await friends.initialize();
       service = SupabaseAuthService(
         Supabase.instance.client,
         await SharedPreferences.getInstance(),
@@ -22,15 +36,17 @@ Future<void> main() async {
       setupError = 'Unable to initialize the connection. Check your configuration and restart the app.';
     }
   }
-  runApp(CityApp(service: service, setupError: setupError));
+  runApp(CityApp(service: service, setupError: setupError, friends: friends));
 }
 
 class CityApp extends StatelessWidget {
-  const CityApp({super.key, this.service, this.setupError});
+  const CityApp({super.key, this.service, this.setupError, this.friends});
   final AuthService? service;
+  final FriendService? friends;
   final String? setupError;
   @override
   Widget build(BuildContext context) => MaterialApp(
+    initialRoute: '/',
     title: 'City Together',
     debugShowCheckedModeBanner: false,
     theme: ThemeData(
@@ -71,6 +87,6 @@ class CityApp extends StatelessWidget {
               ),
             ),
           )
-        : AuthScreen(service: service!),
+        : AuthScreen(service: service!, friends: friends),
   );
 }

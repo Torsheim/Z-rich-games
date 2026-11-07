@@ -4,6 +4,7 @@ cd "$(dirname "$0")/.."
 command -v supabase >/dev/null || { echo 'Install Supabase CLI first.'; exit 1; }
 docker info >/dev/null 2>&1 || { echo 'Start Docker Desktop first.'; exit 1; }
 supabase start > /private/tmp/city-together-backend.log 2>&1 || { cat /private/tmp/city-together-backend.log; exit 1; }
+supabase migration up
 python3 - <<'PY'
 import json, subprocess
 from pathlib import Path
