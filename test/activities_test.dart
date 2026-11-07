@@ -86,7 +86,7 @@ void main() {
     await initializeDateFormatting('en');
   });
   testWidgets(
-    'Home shows five examples, meetup details and four navigation destinations',
+    'Home focuses on invitations and confirmed plans; public plans live in Search',
     (tester) async {
       final service = FakeActivities();
       await tester.pumpWidget(shell(service));
@@ -94,9 +94,11 @@ void main() {
       expect(find.byType(NavigationDestination), findsNWidgets(4));
       expect(find.text('An evening at the Kunsthaus'), findsOneWidget);
       expect(find.text('Friday bowling crew'), findsOneWidget);
-      expect(find.text('Lakeside walk & a coffee'), findsNWidgets(2));
+      expect(find.text('Lakeside walk & a coffee'), findsOneWidget);
       expect(find.text('A table for a few more'), findsOneWidget);
-      expect(find.text('Darts, drinks & new faces'), findsOneWidget);
+      expect(find.text('Darts, drinks & new faces'), findsNothing);
+      expect(find.byType(ChoiceChip), findsNothing);
+      expect(find.byType(TextButton), findsNothing);
       await tapText(tester, 'An evening at the Kunsthaus');
       expect(find.text('Heimplatz 1, Zurich'), findsOneWidget);
       await tapText(tester, 'I’m going');
@@ -109,7 +111,8 @@ void main() {
       await tester.pageBack();
       await tester.pumpAndSettle();
       await tapText(tester, 'Search');
-      expect(find.text('Find your next plan'), findsOneWidget);
+      expect(find.text('Around you'), findsOneWidget);
+      expect(find.text('Darts, drinks & new faces'), findsOneWidget);
       await tapText(tester, 'Profile');
       expect(find.text('Profile content'), findsOneWidget);
     },
@@ -153,10 +156,10 @@ void main() {
       find.widgetWithText(TextFormField, 'Activity title'),
     );
     await helpers.enter(tester, 'Activity title', 'Dinner with friends');
-    await helpers.enter(
-      tester,
-      'Description',
-      'Bring your favourite conversation.',
+    expect(find.widgetWithText(TextFormField, 'Description'), findsNothing);
+    expect(
+      find.widgetWithText(TextFormField, 'Maximum participants'),
+      findsNothing,
     );
     await tester.ensureVisible(
       find.widgetWithText(TextFormField, 'Meeting point'),
@@ -169,6 +172,7 @@ void main() {
     expect(service.rows.single.data['kind'], 'activity');
     expect(service.rows.single.visibility, 'invite_only');
     expect(service.rows.single.policy, 'invitation_required');
+    expect(service.rows.single.limit, isNull);
     expect(find.text('Dinner with friends'), findsOneWidget);
     expect(
       tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
@@ -204,7 +208,9 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await tapText(tester, 'Invite friends');
       expect(find.textContaining('No friends yet.'), findsOneWidget);
+      await tapText(tester, 'Cancel');
       friends.accepts = 1;
       await tester.pumpWidget(
         MaterialApp(
@@ -218,7 +224,9 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await tapText(tester, 'Invite friends');
       await tapText(tester, 'sam');
+      await tapText(tester, 'Done');
       await tester.ensureVisible(
         find.widgetWithText(TextFormField, 'Activity title'),
       );
@@ -233,6 +241,70 @@ void main() {
       await tester.pumpAndSettle();
       await tapText(tester, 'Create activity');
       expect(selected, ['sam-id']);
+    },
+  );
+  testWidgets(
+    'More options expands on demand and preserves advanced settings when collapsed',
+    (tester) async {
+      final service = FakeActivities();
+      await tester.pumpWidget(shell(service));
+      await tester.pumpAndSettle();
+      await tapText(tester, 'Create');
+      expect(find.widgetWithText(TextFormField, 'Description'), findsNothing);
+      await helpers.enter(tester, 'Activity title', 'A simple dinner');
+      await helpers.enter(tester, 'Meeting point', 'The usual spot');
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      await tapText(tester, 'More options');
+      await tester.ensureVisible(
+        find.widgetWithText(TextFormField, 'Description'),
+      );
+      await tester.pumpAndSettle();
+      await helpers.enter(tester, 'Description', 'Bring something to share.');
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      final unlimited = find.widgetWithText(
+        SwitchListTile,
+        'No participant limit',
+      );
+      await tester.ensureVisible(unlimited);
+      await tester.pumpAndSettle();
+      await tester.tap(unlimited);
+      await tester.pumpAndSettle();
+      await helpers.enter(tester, 'Maximum participants', '0');
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      await tapText(tester, 'More options');
+      expect(find.widgetWithText(TextFormField, 'Description'), findsNothing);
+      await tapText(tester, 'Create activity');
+      expect(service.creates, 0);
+      expect(
+        find.text('Enter a whole number from 1 to 10,000.'),
+        findsOneWidget,
+      );
+      await helpers.enter(tester, 'Maximum participants', '4');
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+      await tapText(tester, 'More options');
+      await tapText(tester, 'Create activity');
+      expect(service.rows.single.limit, 4);
+      expect(
+        service.rows.single.data['description'],
+        'Bring something to share.',
+      );
+    },
+  );
+  testWidgets(
+    'A declined invitation stays accessible for changing the response',
+    (tester) async {
+      await tester.pumpWidget(shell(FakeActivities()));
+      await tester.pumpAndSettle();
+      await tapText(tester, 'An evening at the Kunsthaus');
+      await tapText(tester, 'Decline invitation');
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tapText(tester, 'An evening at the Kunsthaus');
+      expect(find.text('Change to going'), findsOneWidget);
     },
   );
   testWidgets('Signed-in app opens Home, retains Profile and can sign out', (
