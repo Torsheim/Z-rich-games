@@ -1,0 +1,4 @@
+project_id = "social-coordination"
+
+[db.seed]
+enabled = false
