@@ -58,7 +58,31 @@ final publishedId = await supabase.rpc('publish_activity', params: {
 });
 ```
 
-The draft call also accepts `p_ends_at`, `p_address`, `p_latitude`, `p_longitude`, `p_max_participants` and `p_cover_image_url`. Public lookup belongs to a separate operation.
+The draft call also accepts `p_ends_at`, `p_address`, `p_latitude`, `p_longitude`, `p_max_participants` and `p_cover_image_url`.
+
+## Activity lookup
+
+`get_activity` accepts an activity UUID. Anyone can fetch an active public activity, including visitors without a session. A draft is visible to the linked personal organizer or to an owner, admin or editor of its verified organization. The response includes event details and the names of the organizer, category and city. Hidden and unknown activities both return zero rows.
+
+```dart
+final activity = await supabase.rpc('get_activity', params: {
+  'p_activity_id': activityId,
+}).maybeSingle();
+```
+
+### Test the access rules locally
+
+Apply the migrations to a disposable local Supabase database. Use two confirmed test accounts. Give one the `owner` role in a verified organization and leave the other outside it. Create a city and category for the test activity.
+
+- Set `SUPABASE_URL` to the local API URL and set `SUPABASE_PUBLISHABLE_KEY` or `SUPABASE_ANON_KEY` to the local key.
+- Set `FIXTURE_ORGANIZER_ID`, `FIXTURE_CITY_ID` and `FIXTURE_CATEGORY_ID` to the local fixture UUIDs.
+- Set `OWNER_EMAIL`, `OWNER_PASSWORD`, `OUTSIDER_EMAIL` and `OUTSIDER_PASSWORD` for the two test accounts. You can also supply sessions via `OWNER_ACCESS_TOKEN` and `OUTSIDER_ACCESS_TOKEN`.
+
+```sh
+python3 scripts/check_activity_access.py
+```
+
+Each run creates and publishes one activity in the local database.
 
 ## Work on both tracks
 
