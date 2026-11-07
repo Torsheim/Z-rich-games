@@ -6,6 +6,8 @@ import 'package:zurich_games/main.dart';
 
 class FakeAuth implements AuthService {
   User? current;
+  @override
+  String? recoveryEmail;
   bool registered = false;
   String? verifiedCode;
   bool deleted = false;
@@ -52,16 +54,19 @@ class FakeAuth implements AuthService {
   @override
   Future<void> requestReset(String email) async {
     resetRequested = true;
+    recoveryEmail = email;
   }
 
   @override
   Future<void> updatePassword(String password) async {
     newPassword = password;
+    recoveryEmail = null;
   }
 
   @override
   Future<void> logout() async {
     current = null;
+    recoveryEmail = null;
   }
 
   @override
@@ -76,6 +81,7 @@ class FakeAuth implements AuthService {
     }
     deleted = true;
     current = null;
+    recoveryEmail = null;
   }
 }
 

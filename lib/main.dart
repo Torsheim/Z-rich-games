@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'auth/auth_service.dart';
@@ -13,7 +14,10 @@ Future<void> main() async {
   if (url.isNotEmpty && key.isNotEmpty) {
     try {
       await Supabase.initialize(url: url, publishableKey: key);
-      service = SupabaseAuthService(Supabase.instance.client);
+      service = SupabaseAuthService(
+        Supabase.instance.client,
+        await SharedPreferences.getInstance(),
+      );
     } catch (_) {
       setupError = 'Unable to initialize the connection. Check your configuration and restart the app.';
     }

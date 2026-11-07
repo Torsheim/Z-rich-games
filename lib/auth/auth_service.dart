@@ -1,7 +1,9 @@
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 abstract class AuthService {
   Stream<void> get changes;
+  String? get recoveryEmail;
   User? get user;
   Future<void> register(String username, String email, String password);
   Future<void> login(String email, String password);
@@ -15,7 +17,11 @@ abstract class AuthService {
 }
 
 class SupabaseAuthService implements AuthService {
-  SupabaseAuthService(this.client);
+  SupabaseAuthService(this.client, this.preferences);
+  final SharedPreferences preferences;
+  String get _recoveryKey => 'city_pending_recovery_${client.rest.url}';
+  @override
+  String? get recoveryEmail => preferences.getString(_recoveryKey);
   final SupabaseClient client;
   @override
   Stream<void> get changes => client.auth.onAuthStateChange.map((_) {});
@@ -54,15 +60,23 @@ class SupabaseAuthService implements AuthService {
   }
 
   @override
-  Future<void> requestReset(String email) =>
-      client.auth.resetPasswordForEmail(email);
-  @override
-  Future<void> updatePassword(String password) async {
-    await client.auth.updateUser(UserAttributes(password: password));
+  Future<void> requestReset(String email) async {
+    await client.auth.resetPasswordForEmail(email);
+    await preferences.setString(_recoveryKey, email);
   }
 
   @override
-  Future<void> logout() => client.auth.signOut();
+  Future<void> updatePassword(String password) async {
+    await client.auth.updateUser(UserAttributes(password: password));
+    await preferences.remove(_recoveryKey);
+  }
+
+  @override
+  Future<void> logout() async {
+    await client.auth.signOut();
+    await preferences.remove(_recoveryKey);
+  }
+
   @override
   Future<Map<String, dynamic>> profile() =>
       client.from('profiles').select().eq('id', user!.id).single();

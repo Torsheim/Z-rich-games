@@ -31,7 +31,11 @@ class _AuthScreenState extends State<AuthScreen> {
   @override
   void initState() {
     super.initState();
-    _page = auth.user?.emailConfirmedAt != null
+    _recovery = auth.recoveryEmail != null;
+    _email.text = auth.recoveryEmail ?? '';
+    _page = _recovery
+        ? AuthPage.reset
+        : auth.user?.emailConfirmedAt != null
         ? AuthPage.profile
         : AuthPage.welcome;
     if (_page == AuthPage.profile) _profile = auth.profile();
@@ -68,6 +72,7 @@ class _AuthScreenState extends State<AuthScreen> {
   void _go(AuthPage page) {
     setState(() {
       _page = page;
+      _hidden = true;
       _error = null;
       _notice = null;
       _password.clear();
@@ -194,6 +199,7 @@ class _AuthScreenState extends State<AuthScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Delete your account?'),
+        scrollable: true,
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -386,7 +392,9 @@ class _AuthScreenState extends State<AuthScreen> {
                         if (_page == AuthPage.verify ||
                             _page == AuthPage.reset) ...[
                           Text(
-                            'Enter the code sent to ${_email.text.trim()}. Check your spam folder too.',
+                            _page == AuthPage.reset && auth.user != null
+                                ? 'Your email is verified. Choose your new password.'
+                                : 'Enter the code sent to ${_email.text.trim()}. Check your spam folder too.',
                           ),
                           const SizedBox(height: 24),
                         ] else
