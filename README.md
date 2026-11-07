@@ -10,7 +10,7 @@ The [foundation migration](supabase/migrations/20261107001000_activity_foundatio
 | --- | --- |
 | `organizers` | The person or organization responsible for an activity. A personal organizer is linked to exactly one user. |
 | `organizer_members` | The users authorized to act for an organization, with `owner`, `admin` or `editor` as their membership role. |
-| `activities` | The shared record for what is happening, when, where and how people can join. `created_by_user_id` records who created it. `organizer_id` records who is responsible for it. |
+| `activities` | The shared record for what is happening, when, where and how people can join. `created_by_user_id` records the creator while their account exists. `organizer_id` records who is responsible for it. |
 | `activity_participants` | One row per activity and user. Update that row when the user's participation changes. |
 | `activity_invitations` | Invitations addressed to individual users. At most one pending invitation per activity and recipient. |
 | `cities` and `categories` | Shared reference IDs for cities and categories. |
@@ -133,6 +133,20 @@ await supabase.rpc('leave_activity', params: {'p_activity_id': activityId});
 ```
 
 The public activity detail includes `available_places` for upcoming active public activities with a capacity limit. A value of `0` means full. The field is `null` for unlimited capacity and when the activity is outside that scope. Availability reflects the time of the lookup. `join_activity` checks capacity again when confirming a place.
+
+## Account deletion across both tracks
+
+The `user_branch` account-deletion function verifies the signed-in user's password and hard-deletes their Supabase Auth account. The database applies the following changes in the same transaction.
+
+- The profile, friendships, friendship invitation link, activity participation, activity invitations sent or received, and organization memberships belonging to the account are deleted. A confirmed participation frees its place on a retained activity.
+- Organization activities keep their IDs, organizer, publication history and other users' participation. The deleted user's creator attribution is cleared. Existing organization members retain their roles. If the last owner or admin deletes their account, the organization needs a new owner or admin before anyone can manage published activities.
+- A personal organizer owned by the deleted account is removed along with its activities and their dependent records.
+
+To check the integration, apply the migrations from `user_branch` and `organizer-backend` in version order to the same disposable local Supabase database. Run the rollback-only SQL test as the local database owner.
+
+```sh
+psql -X --set=ON_ERROR_STOP=1 "$LOCAL_DATABASE_URL" --file=scripts/check_account_deletion.sql
+```
 
 ## Test the activity API locally
 
