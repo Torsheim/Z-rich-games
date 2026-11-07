@@ -1,176 +1,159 @@
-# Social Coordination
+# City Together
 
-Both tracks use the same `activities` table. The organizer track publishes activities for organizations. The private planning track can collect preferences in its own module and use the shared activity once there is a concrete plan.
+Flutter app for personal plans with friends and public events run by organizations. Both tracks share one Supabase database and the same English-language app, account and profile.
 
-## Shared database contract
+## Implemented
 
-The [foundation migration](supabase/migrations/20261107001000_activity_foundation.sql) defines the shared schema. User IDs refer to Supabase Auth's `auth.users.id`.
+- Welcome screen with sign in and registration.
+- Username, email, password and password confirmation with validation.
+- Email verification with a code, including resend.
+- Sign in, persisted sessions, profile and sign out.
+- Forgotten password with email code and new password.
+- Permanent account deletion after confirmation and server-side password verification.
+- Private profiles with row-level security, unique case-insensitive usernames and automatic profile creation/deletion.
 
-| Table | Responsibility |
-| --- | --- |
-| `organizers` | The person or organization responsible for an activity. A personal organizer is linked to exactly one user. |
-| `organizer_members` | The users authorized to act for an organization, with `owner`, `admin` or `editor` as their membership role. |
-| `activities` | The shared record for what is happening, when, where and how people can join. `created_by_user_id` records the creator while their account exists. `organizer_id` records who is responsible for it. |
-| `activity_participants` | One row per activity and user. Update that row when the user's participation changes. |
-| `activity_invitations` | Invitations addressed to individual users. At most one pending invitation per activity and recipient. |
-| `cities` and `categories` | Shared reference IDs for cities and categories. |
+This requires a configured Supabase project. Without configuration, the app shows setup instructions; there is no simulated authentication.
 
-Lifecycle status is independent of visibility. Both public and invitation-only activities can be `active`.
+## First local test (no cloud account needed)
 
-| Visibility | Join policy | First use |
-| --- | --- | --- |
-| `public` | `instant` | An organization publishes an activity with direct signup. |
-| `public` | `approval_required` | A host reviews participation requests. |
-| `invite_only` | `invitation_required` | An invited group plans an activity. |
-
-Keep the same `activity_id` when the visibility changes. Update visibility and join policy together. The database records the first time the activity is active and public and keeps that timestamp when the activity becomes private again.
-
-## Integration rules for the next backend changes
-
-- Use the signed-in user's ID for authorization. The creator field is provenance. Management rights come from the personal organizer's user or the organization's membership, subject to the operation's role checks. Publishing for an organization requires its `verified_at` to be set.
-- Treat a draft as organizer-only. Public discovery selects active public activities. Invitation-only detail access comes from organizer authority, an eligible invitation or confirmed participation. Expose a confirmed count separately from the participant list.
-- In the transaction that confirms or withdraws a participant or changes capacity, lock the activity first. Count only `confirmed` rows. When changing participation, update the locked activity row in the same transaction so a stale snapshot cannot reuse capacity. Use that same lock order for invitation acceptance and visibility changes. Accept an invitation and confirm participation together, and expire stale pending invitations before issuing a replacement.
-- When changing an activity to invitation-only, keep confirmed participants and existing invitations. Reject pending public participation requests in that same operation.
-
-The foundation enables row-level security and removes direct table access for the application roles. Add narrow grants and policies alongside the operations that need them.
-
-## Organizer publishing
-
-- `create_activity_draft` creates an `invite_only` draft with `invitation_required` and returns its UUID. A verified organization's owner, admin or editor can call it. Pass a description even if it is an empty string.
-- `publish_activity` takes the draft UUID and returns the same UUID. An owner or admin of the activity's verified organization can publish once the description is nonblank. The call sets `status = active`, `visibility = public` and `join_policy = instant` atomically. Repeating the call in that state returns the UUID without updating the activity.
-
-The Flutter example uses a Supabase client with a signed-in owner or admin session. Supply `organizerId`, `categoryId` and `cityId` from existing fixtures, with `verified_at` set on the organization.
-
-```dart
-final activityId = await supabase.rpc('create_activity_draft', params: {
-  'p_organizer_id': organizerId,
-  'p_title': 'Bowling night',
-  'p_description': 'Meet at the front desk.',
-  'p_category_id': categoryId,
-  'p_starts_at': DateTime.now().toUtc().add(const Duration(days: 1)).toIso8601String(),
-  'p_timezone': 'Europe/Zurich',
-  'p_city_id': cityId,
-  'p_place_name': 'Bowling center',
-});
-
-final publishedId = await supabase.rpc('publish_activity', params: {
-  'p_activity_id': activityId,
-});
-```
-
-The draft call also accepts `p_ends_at`, `p_address`, `p_latitude`, `p_longitude`, `p_max_participants` and `p_cover_image_url`.
-
-## Edit and cancel an organizer activity
-
-For a verified organization, an owner, admin or editor can edit a draft. An owner or admin can also edit or cancel an active activity. Both calls return the existing activity ID.
-
-`update_activity` takes `p_changes`, an object with the fields to save. Send only changed fields and pass `null` to clear optional values. Date and time values use ISO 8601 strings with an offset. The editable fields are `title`, `description`, `category_id`, `cover_image_url`, `max_participants`, `starts_at`, `ends_at`, `timezone`, `city_id`, `place_name`, `address`, `latitude` and `longitude`. A new capacity must cover all confirmed participants.
-
-```dart
-await supabase.rpc('update_activity', params: {
-  'p_activity_id': activityId,
-  'p_changes': {'place_name': 'Bowling center, entrance B'},
-});
-```
-
-`cancel_activity` accepts an optional `p_reason` of up to 500 characters. The activity disappears from the public listing. Its existing public link returns `status = cancelled`, `cancelled_at` and `cancellation_reason`, which the detail screen can display. A repeat call preserves the original cancellation details. Participants and invitations stay linked to the activity.
-
-```dart
-await supabase.rpc('cancel_activity', params: {
-  'p_activity_id': activityId,
-  'p_reason': 'The venue is closed.',
-});
-```
-
-## Activity lookup
-
-`get_activity` accepts an activity UUID. Visitors without a session can fetch active public activities and previously published activities that are still public after cancellation. Drafts and other cancelled activities are visible to the linked personal organizer or to an owner, admin or editor of their verified organization. The response includes event details and the names of the organizer, category and city. Hidden and unknown activities both return zero rows.
-
-```dart
-final activity = await supabase.rpc('get_activity', params: {
-  'p_activity_id': activityId,
-}).maybeSingle();
-```
-
-## Public activity listing
-
-`list_public_activities` returns summaries of active public activities whose start time is at or after the request time. Visitors can call it without a user session. Results are sorted by `starts_at` and then `id`. Use the returned `id` with `get_activity` to open the activity details.
-
-```dart
-final activities = await supabase.rpc('list_public_activities', params: {
-  'p_city_id': cityId,
-});
-```
-
-Pass `p_city_id` and `p_category_id` to filter by city and category. Both filters are optional. `p_limit` defaults to 20 and accepts values from 1 to 100. For the next page, keep the same filters and pass the last row's `starts_at` string as `p_after_starts_at` and its `id` as `p_after_activity_id`. Supply both cursor values together.
-
-## Instant signup
-
-`join_activity` confirms a place for the signed-in user and returns the activity ID. Signup is open before the start of an `active`, `public` activity with `join_policy = instant`. Only confirmed participants count toward capacity, including confirmed hosts and co-hosts. A `null` capacity means unlimited places.
-
-```dart
-final joinedActivityId = await supabase.rpc('join_activity', params: {
-  'p_activity_id': activityId,
-});
-```
-
-While signup is open, a confirmed user can repeat the call and receive the same ID even when the activity is full. A new signup reuses an existing `requested`, `waitlisted` or `cancelled` participation row. Organizer decisions recorded as `rejected` or `removed` block self-signup.
-
-Handle `PT409` as HTTP 409 with `details = activity_full` when all places are taken or `details = activity_closed` when the public activity cannot accept direct signups. `42501` indicates denied access, including hidden or unknown IDs.
-
-## Withdrawal and availability
-
-`leave_activity` withdraws the signed-in user's `confirmed`, `requested` or `waitlisted` participation before an active activity starts. It returns the activity ID and records `cancelled` on the existing row. A repeat call for an already withdrawn participation returns the same ID. Withdrawing a confirmed place makes it available in the same transaction.
-
-`get_my_activity_participation` returns the signed-in user's participation status or `null` if they have no record for the activity.
-
-```dart
-final participationStatus = await supabase.rpc('get_my_activity_participation', params: {
-  'p_activity_id': activityId,
-});
-
-await supabase.rpc('leave_activity', params: {'p_activity_id': activityId});
-```
-
-The public activity detail includes `available_places` for upcoming active public activities with a capacity limit. A value of `0` means full. The field is `null` for unlimited capacity and when the activity is outside that scope. Availability reflects the time of the lookup. `join_activity` checks capacity again when confirming a place.
-
-## Account deletion across both tracks
-
-The `user_branch` account-deletion function verifies the signed-in user's password and hard-deletes their Supabase Auth account. The database applies the following changes in the same transaction.
-
-- The profile, friendships, friendship invitation link, activity participation, activity invitations sent or received, and organization memberships belonging to the account are deleted. A confirmed participation frees its place on a retained activity.
-- Organization activities keep their IDs, organizer, publication history and other users' participation. The deleted user's creator attribution is cleared. Existing organization members retain their roles. If the last owner or admin deletes their account, the organization needs a new owner or admin before anyone can manage published activities.
-- A personal organizer owned by the deleted account is removed along with its activities and their dependent records.
-
-To check the integration, apply the migrations from `user_branch` and `organizer-backend` in version order to the same disposable local Supabase database. Run the rollback-only SQL test as the local database owner.
+Start Docker Desktop, then run:
 
 ```sh
+./scripts/start-local.sh
+```
+
+Open the app at http://localhost:3000 and the local test mailbox at http://127.0.0.1:54324. Register with a test address such as `alex@example.com`. All outgoing development emails appear in the test mailbox, not in a real inbox. Copy the verification code into the app. You can also test sign out, sign in, password reset and account deletion.
+
+The script starts the local Supabase database, applies migrations on first initialization, writes the ignored `config.local.json`, serves the deletion function and starts Flutter. The first run downloads Docker images. Stop Flutter with Ctrl+C; the database remains running so test accounts persist. Use `supabase stop` to stop the backend without deleting its data.
+
+The configuration targets a browser on this computer. A physical phone needs a reachable backend address instead of loopback.
+
+## Home and personal activities
+
+The signed-in app has four bottom tabs. **Home** groups invitations, personal plans, public personal suggestions and activities you host. **Create** starts a personal activity, **Events** shows organization events, and **Profile** contains the account and friends tools. Open a Home card to see its meeting point, change your response or manage its visibility. The five labeled examples are interactive layout previews. Hide them to see real plans.
+
+Create defaults to an invite-only personal activity. Set a title, description, category, start/end, meeting point, address, participant limit, optional HTTPS cover and coordinates, and select friends. Zurich is the pilot city; `Europe/Zurich` is derived server-side, including daylight saving. IDs, ownership and audit timestamps are generated by the backend. A ready activity sends in-app invitations; a draft stays visible only to its host until activated. The host counts toward capacity and invitations do not reserve places.
+
+Real activities persist in Supabase and appear on Home immediately after creation. Publishing retains the same activity, group and invitations. Public joining can be immediate or require approval. Hosts review requests on the detail screen. Returning to invite-only keeps confirmed participants and rejects pending public requests. Attendees can decline and later change back to going if capacity permits. All writes are authorized RPCs; direct table writes are denied. Enrollment and approval lock the activity row to protect the last place. Only friends can be invited at creation; users cannot create organizer events.
+
+Apply every migration in `supabase/migrations/` in order. `scripts/start-local.sh` also applies pending local migrations. `flutter test` covers the navigation, form, sample interactions and a narrow mobile layout.
+
+Personal organizers are linked to their owners by account UUID. The integration migrates existing personal activities, invitations and participants to the shared schema and retains their IDs. The private-activity RPCs continue to use the existing Flutter forms and invitation flows.
+
+## Organization events
+
+Open **Events** when signed in, or choose **Browse public events** on the welcome screen. The list supports city and category filters. A public event link opens its detail page, including updates to time or place, available spots and any cancellation. A signed-in user can join and withdraw before the event starts.
+
+**Manage events** lists the verified organizations the account belongs to. An editor can create and edit drafts. Owners and admins can also publish, edit or cancel active events and see the confirmed participant list. Confirmed attendees receive an in-app update when the time or venue changes or the event is cancelled. Read status belongs to each recipient.
+
+For a disposable local demo, register a user first, then run this SQL as the local database owner with their username.
+
+```sql
+with account as (
+  select id from public.profiles where lower(username) = lower('demo_owner')
+), organization as (
+  insert into public.organizers (type, name, verified_at)
+  select 'organization', 'Zurich Bowling Club', now() from account
+  returning id
+)
+insert into public.organizer_members (organizer_id, user_id, role)
+select organization.id, account.id, 'owner' from organization cross join account;
+```
+
+The integration migrations support a new database and an upgrade from the `user_branch` activity schema. Use a fresh disposable database when testing from the older standalone organizer setup, which has a different migration history. The following rollback-only checks cover organizer access, notifications and account deletion with both tracks installed.
+
+```sh
+psql -X --set=ON_ERROR_STOP=1 "$LOCAL_DATABASE_URL" --file=scripts/check_organization_events.sql
 psql -X --set=ON_ERROR_STOP=1 "$LOCAL_DATABASE_URL" --file=scripts/check_account_deletion.sql
 ```
 
-## Test the activity API locally
+## Friends: QR codes and invitation links
 
-Apply the migrations to a disposable local Supabase database. Use two confirmed test accounts. Give one the `owner` role in a verified organization and leave the other outside it. Create a city and category for the test activity.
+On your profile, open **My QR code & link** to show your personal invitation. Another signed-in user can scan it with **Scan a QR code** or open the copied link. A dialog shows the inviter's username; **Add friend** creates one mutual friendship. Canceling or merely viewing the invitation creates nothing. **Remove** beside a friend opens a confirmation dialog; confirming ends the friendship for both people. Existing invitation links can still be used to reconnect; removal is not a block. No username search or direct add-by-user-ID endpoint is provided.
 
-- Set `SUPABASE_URL` to the local API URL and set `SUPABASE_PUBLISHABLE_KEY` or `SUPABASE_ANON_KEY` to the local key.
-- Set `FIXTURE_ORGANIZER_ID`, `FIXTURE_CITY_ID` and `FIXTURE_CATEGORY_ID` to the local fixture UUIDs.
-- Set `OWNER_EMAIL`, `OWNER_PASSWORD`, `OUTSIDER_EMAIL` and `OUTSIDER_PASSWORD` for the two test accounts. You can also supply sessions via `OWNER_ACCESS_TOKEN` and `OUTSIDER_ACCESS_TOKEN`.
+Invitations are reusable for seven days. **Replace invitation** immediately revokes the previous code/link; existing friendships remain. Both users see each other under **Friends**, with realtime updates and a refresh fallback. Self-invitations, invalid/expired tokens and repeated acceptance are handled. Account deletion cascades to friendships and invitations. Only the two participants can read their friendship, and the friend-list RPC exposes usernames rather than email addresses.
+
+To test on this computer, create two users in separate browser profiles (or normal/incognito windows). Copy the first user's invitation link and open it in the second window. If signed out, sign in or register first: the invitation is stored locally and confirmation opens after login. The web link and the scanner feed the same confirmation flow. `python3 scripts/check_local_friends.py` exercises real local mutual friendships, RLS, token rotation and account deletion using disposable users.
+
+For an existing cloud backend, apply **all** files in `supabase/migrations/` in order (or use `supabase db push`). Local upgrades use `supabase migration up`; no database reset is needed.
+
+Browser links use the app's current address by default. Set optional `APP_PUBLIC_URL` in your Dart configuration to the deployed HTTPS app URL when sharing across devices. A localhost link only reaches this computer. Browser camera scanning requires HTTPS or localhost and camera permission. The scanner handles denied/unavailable cameras, and invitation links can also be pasted via **Open invitation link**.
+
+Native builds support `citytogether://friend?friend=TOKEN` for installed apps (including cold and warm launch). Without `APP_PUBLIC_URL`, native invitations use this scheme. If using an HTTPS `APP_PUBLIC_URL`, links open the hosted web app; verified iOS Universal Links/Android App Links require a deployed domain and its association files before HTTPS links can directly launch the installed app. iOS camera usage text and Android camera permissions are included. Real camera scanning and native-device launch still require device testing.
+
+## Connect Supabase
+
+1. Create a Supabase project. Under **Authentication → Providers → Email**, enable email/password signups and **Confirm email**. Set the minimum password length to **12**.
+2. Apply the integration branch's migrations in order. For a new Supabase project, link it with the Supabase CLI and run `supabase db push`.
+3. Under **Authentication → Email Templates**, configure both **Confirm signup** and **Reset password** to show `{{ .Token }}` as the code in the email body. Example:
+
+   ```html
+   <h2>Your City Together code</h2>
+   <p>Enter this code in the app:</p>
+   <p><strong>{{ .Token }}</strong></p>
+   <p>If you did not request this email, you can ignore it.</p>
+   ```
+
+   Keep the confirmation code numeric (6–10 digits). The app uses `verifyOTP` with `signup` or `recovery`, so no mobile callback/deep link is required. Do not use the default link-only templates for this flow.
+4. Configure your SMTP provider for real email delivery. Supabase's default mail service has recipient restrictions and rate limits; check the project's current settings. Set the desired code expiry in Auth settings.
+5. Install/login to the Supabase CLI, link the project and deploy the deletion function:
+
+   ```sh
+   supabase login
+   supabase link --project-ref YOUR_PROJECT_REF
+   supabase functions deploy delete-account
+   ```
+
+   The checked-in `supabase/config.toml` disables gateway JWT checking for this function because the function validates the bearer token with `auth.getUser` itself. The hosted function receives `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` from Supabase. Never put the service-role key in the Flutter app.
+6. Copy `config.example.json` to `config.local.json` and enter the project URL and publishable/anon key from Supabase project settings. This file is Git-ignored.
+7. Start the app:
+
+   ```sh
+   flutter pub get
+   flutter run -d chrome --web-port 3000 --dart-define-from-file=config.local.json
+   ```
+
+   For iOS/Android, select a simulator or connected device with `flutter devices` and use its ID instead of `chrome`. Android release builds include internet permission.
+
+Only the public publishable/anon key is used in the client; database authorization is enforced with RLS. Passwords are managed by Supabase Auth. Email addresses remain in Auth rather than a publicly readable profile table. Username uniqueness is enforced in Postgres; a conflicting registration can return a generic signup error rather than revealing account details.
+
+## Verification
+
+With the local stack and deletion function running, `python3 scripts/check_local_auth.py` checks real registration, confirmation email codes, profile access protection, login/refresh, password reset and permanent deletion.
+
 
 ```sh
-python3 scripts/check_activity_access.py
+flutter analyze
+flutter test
+flutter build web --dart-define-from-file=config.local.json
 ```
 
-Each run creates, edits and publishes one activity, checks signup, withdrawal and availability, then cancels the activity in the local database.
+Live acceptance checks after backend configuration:
 
-## Work on both tracks
+1. Register a fresh email/username. Confirm that sign in before email verification is rejected.
+2. Enter a wrong/expired code, resend, then verify the new code. Profile should show the username and verified email.
+3. Restart the app and verify session restoration; sign out and sign in again.
+4. Request a password reset, enter the email code, and set a new password. Confirm the old password no longer works.
+5. Try a duplicate username, including different capitalization.
+6. With two users, confirm each user can only select their own profile and cannot insert/update/delete profile rows directly.
+7. Cancel account deletion; then try an incorrect password. Neither should delete the account.
+8. Delete with the correct password. Confirm both Auth user and profile are removed, the app returns to welcome, and the old credentials cannot sign in.
+9. Call the deletion function without a token and with an invalid token; both must be rejected.
 
-Start both feature branches from the same foundation commit. Add new, uniquely timestamped migrations for schema changes and review shared table or enum changes together. Keep planning-specific data in its own tables and link it to the shared `activity_id` when needed.
+Account deletion removes the profile, friendships, personal activities, organization memberships, participation, invitations and event update receipts attached to the deleted account. It frees any confirmed places on retained activities. Organization events keep their IDs, publication history and other people's participation, and the deleted account's creator attribution is cleared.
 
-For a local development database, install the Supabase CLI, start a Docker-compatible runtime and run the following from the repository root.
+## Project layout
 
-```sh
-supabase start
-supabase migration up --local
-```
+- `lib/main.dart`: startup, configuration and theme.
+- `lib/auth/auth_service.dart`: Supabase integration and validation.
+- `lib/auth/auth_screen.dart`: authentication and profile UI.
+- `lib/events/`: public event browsing, details and participation, organizer tools and the update inbox.
+- `supabase/migrations/`: database schema, profile trigger and RLS.
+- `supabase/functions/delete-account/`: authenticated account deletion.
+- `activity-datenmodell.md`: planned activity model.
 
-Use the local project for fixtures and access tests. [Supabase local migration workflow](https://supabase.com/docs/guides/local-development/database-migrations)
+## References
+
+- [Supabase Flutter signup](https://supabase.com/docs/reference/dart/auth-signup)
+- [Password authentication](https://supabase.com/docs/guides/auth/passwords)
+- [Admin account deletion](https://supabase.com/docs/reference/dart/auth-admin-deleteuser)
