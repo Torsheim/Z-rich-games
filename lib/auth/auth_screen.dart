@@ -6,13 +6,21 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'auth_service.dart';
 import '../friends/friend_service.dart';
 import '../friends/friends_section.dart';
+import '../activities/activity_service.dart';
+import '../activities/app_shell.dart';
 
 enum AuthPage { welcome, login, register, verify, forgot, reset, profile }
 
 class AuthScreen extends StatefulWidget {
-  const AuthScreen({super.key, required this.service, this.friends});
+  const AuthScreen({
+    super.key,
+    required this.service,
+    this.friends,
+    this.activities,
+  });
   final AuthService service;
   final FriendService? friends;
+  final ActivityService? activities;
   @override
   State<AuthScreen> createState() => _AuthScreenState();
 }
@@ -352,7 +360,7 @@ class _AuthScreenState extends State<AuthScreen> {
       AuthPage.reset => 'Reset your password',
       AuthPage.profile => 'Your profile',
     };
-    return Scaffold(
+    final content = Scaffold(
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -581,5 +589,16 @@ class _AuthScreenState extends State<AuthScreen> {
         ),
       ),
     );
+    if (_page == AuthPage.profile && widget.activities != null) {
+      return AppShell(
+        key: ValueKey(auth.user!.id),
+        userId: auth.user!.id,
+        username: (auth.user!.userMetadata?['username'] as String?) ?? 'there',
+        profile: content,
+        activities: widget.activities!,
+        friends: widget.friends,
+      );
+    }
+    return content;
   }
 }

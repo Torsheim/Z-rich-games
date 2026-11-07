@@ -1,18 +1,25 @@
 import 'package:flutter/material.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'auth/auth_service.dart';
 import 'auth/auth_screen.dart';
 import 'friends/friend_service.dart';
+import 'activities/activity_service.dart';
+
+import 'package:timezone/data/latest.dart' as timezone;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  timezone.initializeTimeZones();
+  await initializeDateFormatting('en');
   const url = String.fromEnvironment('SUPABASE_URL');
   const key = String.fromEnvironment('SUPABASE_ANON_KEY');
   AuthService? service;
   String? setupError;
   FriendService? friends;
+  ActivityService? activities;
   if (url.isNotEmpty && key.isNotEmpty) {
     try {
       await Supabase.initialize(url: url, publishableKey: key);
@@ -28,6 +35,7 @@ Future<void> main() async {
         base,
       );
       await friends.initialize();
+      activities = ActivityService(Supabase.instance.client);
       service = SupabaseAuthService(
         Supabase.instance.client,
         await SharedPreferences.getInstance(),
@@ -36,13 +44,27 @@ Future<void> main() async {
       setupError = 'Unable to initialize the connection. Check your configuration and restart the app.';
     }
   }
-  runApp(CityApp(service: service, setupError: setupError, friends: friends));
+  runApp(
+    CityApp(
+      service: service,
+      setupError: setupError,
+      friends: friends,
+      activities: activities,
+    ),
+  );
 }
 
 class CityApp extends StatelessWidget {
-  const CityApp({super.key, this.service, this.setupError, this.friends});
+  const CityApp({
+    super.key,
+    this.service,
+    this.setupError,
+    this.friends,
+    this.activities,
+  });
   final AuthService? service;
   final FriendService? friends;
+  final ActivityService? activities;
   final String? setupError;
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -87,6 +109,10 @@ class CityApp extends StatelessWidget {
               ),
             ),
           )
-        : AuthScreen(service: service!, friends: friends),
+        : AuthScreen(
+            service: service!,
+            friends: friends,
+            activities: activities,
+          ),
   );
 }

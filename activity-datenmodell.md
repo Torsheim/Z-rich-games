@@ -220,6 +220,8 @@ Eine zuvor öffentliche Activity kann bereits gesehen oder geteilt worden sein; 
 - Sinnvolle Indizes sind öffentliche Activities nach Stadt, Status und Beginn, Teilnehmer nach Activity und Status sowie Einladungen nach Empfänger und Status.
 - Chat, Tickets, Zahlungen, Turnierregeln, wiederkehrende Termine und Entdeckungsaufgaben können später als eigene verknüpfte Modelle ergänzt werden.
 
-## Noch nicht festgelegt
+## Aktueller Implementierungsstand
 
-Die konkrete Datenbanktechnologie und das Backend wurden noch nicht ausgewählt. Dieses Dokument beschreibt das fachliche Modell und seine Regeln; konkrete SQL-Tabellen, API-Endpunkte und Zugriffsrichtlinien folgen bei der Implementierung.
+Das Backend verwendet inzwischen Supabase/PostgreSQL. Persönliche Aktivitäten, Kategorien, die Pilotstadt Zürich, Teilnahmen und Freundeseinladungen sind in `supabase/migrations/202611070004_activities.sql` implementiert. Geschützte RPCs übernehmen Erstellung, Statusantworten, Veröffentlichung und Teilnahmefreigaben; direkte Tabellenänderungen sind für App-Nutzer gesperrt.
+
+Die fünf Beispielaktivitäten der Oberfläche sind getrennte lokale Vorschauen. Eigene Aktivitäten werden dauerhaft gespeichert. `organizer_id` verweist bei persönlichen Aktivitäten vorläufig auf das Nutzerprofil. Das gemeinsame Organizer-Modell mit Organisationen wird separat mit dem Organizer-Backend integriert. Suche, Chat und vollständige nachträgliche Bearbeitung sind noch nicht umgesetzt.
