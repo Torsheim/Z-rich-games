@@ -399,6 +399,12 @@ class _AuthScreenState extends State<AuthScreen> {
                           const SizedBox(height: 24),
                         ] else
                           const SizedBox(height: 16),
+                        if (_page == AuthPage.verify) ...[
+                          const Text(
+                            'If you already registered with this email, your original username is kept.',
+                          ),
+                          const SizedBox(height: 16),
+                        ],
                         if (_page == AuthPage.register)
                           _field(
                             'Username',
