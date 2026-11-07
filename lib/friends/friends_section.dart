@@ -328,7 +328,35 @@ class _InviteDialogState extends State<_InviteDialog> {
               ),
             ),
             const SizedBox(height: 12),
-            SelectableText(link),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: SelectableText(link)),
+                IconButton(
+                  tooltip: 'Copy link',
+                  onPressed: _busy
+                      ? null
+                      : () async {
+                          try {
+                            await Clipboard.setData(ClipboardData(text: link));
+                            if (mounted) {
+                              setState(
+                                () => _message =
+                                    'Link copied. You can send it to a friend.',
+                              );
+                            }
+                          } catch (_) {
+                            if (mounted) {
+                              setState(
+                                () => _message = 'Could not copy. Select and copy the link above.',
+                              );
+                            }
+                          }
+                        },
+                  icon: const Icon(Icons.copy_outlined),
+                ),
+              ],
+            ),
             const SizedBox(height: 12),
             Text(
               'Valid until ${(_invite['expires_at'] as String).split('T').first}. Replacing it disables the old QR code and link.',
@@ -338,29 +366,6 @@ class _InviteDialogState extends State<_InviteDialog> {
         ),
       ),
       actions: [
-        TextButton(
-          onPressed: _busy
-              ? null
-              : () async {
-                  try {
-                    await Clipboard.setData(ClipboardData(text: link));
-                    if (mounted) {
-                      setState(
-                        () => _message =
-                            'Link copied. You can send it to a friend.',
-                      );
-                    }
-                  } catch (_) {
-                    if (mounted) {
-                      setState(
-                        () => _message =
-                            'Could not copy. Select and copy the link above.',
-                      );
-                    }
-                  }
-                },
-          child: const Text('Copy link'),
-        ),
         TextButton(
           onPressed: _busy
               ? null

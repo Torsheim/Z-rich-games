@@ -130,7 +130,10 @@ void main() {
         null,
       ),
     );
-    await helpers.tapText(tester, 'Copy link');
+    final copyIcon = find.byTooltip('Copy link');
+    await tester.ensureVisible(copyIcon);
+    await tester.tap(copyIcon);
+    await tester.pumpAndSettle();
     expect(copied, friends.linkFor(token));
     expect(
       find.text('Link copied. You can send it to a friend.'),
