@@ -17,6 +17,7 @@ ACTIVITY_FIELDS = {
     "city_id", "city_name", "title", "description", "cover_image_url", "status",
     "visibility", "join_policy", "max_participants", "starts_at", "ends_at",
     "timezone", "place_name", "address", "latitude", "longitude",
+    "cancelled_at", "cancellation_reason",
 }
 
 PUBLIC_SUMMARY_FIELDS = {
@@ -127,6 +128,12 @@ def activity_row(data, activity_id, state, label):
     return activity
 
 
+def check_hidden_from_listing(data, activity_id, state):
+    check(isinstance(data, list) and len(data) <= 1
+          and all(isinstance(row, dict) and row.get("id") != activity_id for row in data),
+          f"Anonymous listing must hide the {state} activity and respect the page limit.")
+
+
 def run():
     base_url = local_url(required("SUPABASE_URL"), "SUPABASE_URL")
     rpc_url = local_url(os.environ.get("SUPABASE_RPC_URL") or f"{base_url}/rest/v1", "SUPABASE_RPC_URL")
@@ -160,6 +167,16 @@ def run():
     draft = activity_row(rpc("get_activity", activity_args, "Owner draft lookup", owner),
                          activity_id, ("draft", "invite_only", "invitation_required"), "Owner draft lookup")
     check(draft["title"] == title, "Owner draft lookup returned the wrong title.")
+    check(draft["cancelled_at"] is None and draft["cancellation_reason"] is None,
+          "The draft must have no cancellation metadata.")
+
+    title = f"{title} edited"
+    draft_edit = {**activity_args, "p_changes": {"title": title}}
+    check(rpc("update_activity", draft_edit, "Owner draft edit", owner) == activity_id,
+          "Draft editing must preserve the activity UUID.")
+    draft = {**draft, "title": title}
+    check(rpc("get_activity", activity_args, "Owner edited draft lookup", owner) == [draft],
+          "The edited draft must show the new title and preserve the other fields.")
 
     # The previous UUID at the exact timestamp puts this activity first if visible.
     listing_args = {
@@ -170,9 +187,7 @@ def run():
         "p_after_activity_id": str(UUID(int=draft_uuid.int - 1)),
     }
     draft_listing = rpc("list_public_activities", listing_args, "Anonymous listing before publication")
-    check(isinstance(draft_listing, list) and len(draft_listing) <= 1
-          and all(isinstance(row, dict) and row.get("id") != activity_id for row in draft_listing),
-          "Anonymous listing must hide the draft and respect the page limit.")
+    check_hidden_from_listing(draft_listing, activity_id, "draft")
 
     for label, token in (("Anonymous", None), ("Unrelated user", outsider)):
         hidden = rpc("get_activity", activity_args, f"{label} draft lookup", token)
@@ -192,11 +207,49 @@ def run():
     public = activity_row(rpc("get_activity", activity_args, "Anonymous public lookup"),
                           activity_id, ("active", "public", "instant"), "Anonymous public lookup")
     check(public["title"] == title, "Anonymous lookup returned the wrong title.")
+    check(public["cancelled_at"] is None and public["cancellation_reason"] is None,
+          "The published activity must have no cancellation metadata.")
     check(rpc("get_activity", activity_args, "Unrelated user public lookup", outsider) == [public],
           "The unrelated user must see the same public activity as an anonymous visitor.")
+
+    place_name = "Bowling center court entrance"
+    active_edit = {**activity_args, "p_changes": {"place_name": place_name}}
+    reason = "Venue closed."
+    cancel_args = {**activity_args, "p_reason": reason}
+    for operation, body, label in (
+        ("update_activity", active_edit, "Unrelated user active edit"),
+        ("cancel_activity", cancel_args, "Unrelated user cancellation"),
+    ):
+        denied = rpc(operation, body, label, outsider, expected=403)
+        check(isinstance(denied, dict) and denied.get("code") == "42501",
+              f"{label} must fail with SQLSTATE 42501.")
+    check(rpc("get_activity", activity_args, "Anonymous lookup after denied changes") == [public],
+          "Denied edit and cancellation must leave the published activity unchanged.")
+
+    check(rpc("update_activity", active_edit, "Owner active edit", owner) == activity_id,
+          "Active editing must preserve the activity UUID.")
+    public = {**public, "place_name": place_name}
+    check(rpc("get_activity", activity_args, "Anonymous edited activity lookup") == [public],
+          "The edited public activity must show the new place and preserve the other fields.")
     summary = {field: public[field] for field in PUBLIC_SUMMARY_FIELDS}
-    listing = rpc("list_public_activities", listing_args, "Anonymous listing after publication")
-    check(listing == [summary], "Anonymous listing must return exactly the published activity's public summary.")
+    listing = rpc("list_public_activities", listing_args, "Anonymous listing after edit")
+    check(listing == [summary], "Anonymous listing must return exactly the edited activity's public summary.")
+
+    check(rpc("cancel_activity", cancel_args, "Owner cancellation", owner) == activity_id,
+          "Cancellation must preserve the activity UUID.")
+    cancelled = activity_row(rpc("get_activity", activity_args, "Anonymous cancelled activity lookup"),
+                             activity_id, ("cancelled", "public", "instant"), "Anonymous cancelled activity lookup")
+    cancelled_at = cancelled["cancelled_at"]
+    check(isinstance(cancelled_at, str) and cancelled_at, "Cancellation must set a timestamp.")
+    check(cancelled == {**public, "status": "cancelled", "cancelled_at": cancelled_at,
+                        "cancellation_reason": reason},
+          "Cancelled activity lookup must retain public details and include the cancellation reason.")
+    check(rpc("cancel_activity", cancel_args, "Owner repeated cancellation", owner) == activity_id,
+          "Repeated cancellation must return the same activity UUID.")
+    check(rpc("get_activity", activity_args, "Anonymous lookup after repeated cancellation") == [cancelled],
+          "Repeated cancellation must preserve the timestamp and details.")
+    cancelled_listing = rpc("list_public_activities", listing_args, "Anonymous listing after cancellation")
+    check_hidden_from_listing(cancelled_listing, activity_id, "cancelled")
     print("Activity access smoke passed.")
 
 

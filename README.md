@@ -60,9 +60,31 @@ final publishedId = await supabase.rpc('publish_activity', params: {
 
 The draft call also accepts `p_ends_at`, `p_address`, `p_latitude`, `p_longitude`, `p_max_participants` and `p_cover_image_url`.
 
+## Edit and cancel an organizer activity
+
+For a verified organization, an owner, admin or editor can edit a draft. An owner or admin can also edit or cancel an active activity. Both calls return the existing activity ID.
+
+`update_activity` takes `p_changes`, an object with the fields to save. Send only changed fields and pass `null` to clear optional values. Date and time values use ISO 8601 strings with an offset. The editable fields are `title`, `description`, `category_id`, `cover_image_url`, `max_participants`, `starts_at`, `ends_at`, `timezone`, `city_id`, `place_name`, `address`, `latitude` and `longitude`. A new capacity must cover all confirmed participants.
+
+```dart
+await supabase.rpc('update_activity', params: {
+  'p_activity_id': activityId,
+  'p_changes': {'place_name': 'Bowling center, entrance B'},
+});
+```
+
+`cancel_activity` accepts an optional `p_reason` of up to 500 characters. The activity disappears from the public listing. Its existing public link returns `status = cancelled`, `cancelled_at` and `cancellation_reason`, which the detail screen can display. A repeat call preserves the original cancellation details. Participants and invitations stay linked to the activity.
+
+```dart
+await supabase.rpc('cancel_activity', params: {
+  'p_activity_id': activityId,
+  'p_reason': 'The venue is closed.',
+});
+```
+
 ## Activity lookup
 
-`get_activity` accepts an activity UUID. Anyone can fetch an active public activity, including visitors without a session. A draft is visible to the linked personal organizer or to an owner, admin or editor of its verified organization. The response includes event details and the names of the organizer, category and city. Hidden and unknown activities both return zero rows.
+`get_activity` accepts an activity UUID. Visitors without a session can fetch active public activities and previously published activities that are still public after cancellation. Drafts and other cancelled activities are visible to the linked personal organizer or to an owner, admin or editor of their verified organization. The response includes event details and the names of the organizer, category and city. Hidden and unknown activities both return zero rows.
 
 ```dart
 final activity = await supabase.rpc('get_activity', params: {
@@ -94,7 +116,7 @@ Apply the migrations to a disposable local Supabase database. Use two confirmed 
 python3 scripts/check_activity_access.py
 ```
 
-Each run creates and publishes one activity in the local database.
+Each run creates, edits, publishes and cancels one activity in the local database.
 
 ## Work on both tracks
 
