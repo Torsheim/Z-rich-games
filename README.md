@@ -29,7 +29,7 @@ Keep the same `activity_id` when the visibility changes. Update visibility and j
 
 - Use the signed-in user's ID for authorization. The creator field is provenance. Management rights come from the personal organizer's user or the organization's membership, subject to the operation's role checks. Publishing for an organization requires its `verified_at` to be set.
 - Treat a draft as organizer-only. Public discovery selects active public activities. Invitation-only detail access comes from organizer authority, an eligible invitation or confirmed participation. Expose a confirmed count separately from the participant list.
-- In the transaction that confirms a participant or changes capacity, lock the activity first. Count only `confirmed` rows. Use that same lock order for invitation acceptance and visibility changes. Accept an invitation and confirm participation together, and expire stale pending invitations before issuing a replacement.
+- In the transaction that confirms a participant or changes capacity, lock the activity first. Count only `confirmed` rows. When confirming a participant, update the locked activity row in the same transaction so a stale snapshot cannot reuse capacity. Use that same lock order for invitation acceptance and visibility changes. Accept an invitation and confirm participation together, and expire stale pending invitations before issuing a replacement.
 - When changing an activity to invitation-only, keep confirmed participants and existing invitations. Reject pending public participation requests in that same operation.
 
 The foundation enables row-level security and removes direct table access for the application roles. Add narrow grants and policies alongside the operations that need them.
@@ -104,6 +104,20 @@ final activities = await supabase.rpc('list_public_activities', params: {
 
 Pass `p_city_id` and `p_category_id` to filter by city and category. Both filters are optional. `p_limit` defaults to 20 and accepts values from 1 to 100. For the next page, keep the same filters and pass the last row's `starts_at` string as `p_after_starts_at` and its `id` as `p_after_activity_id`. Supply both cursor values together.
 
+## Instant signup
+
+`join_activity` confirms a place for the signed-in user and returns the activity ID. Signup is open before the start of an `active`, `public` activity with `join_policy = instant`. Only confirmed participants count toward capacity, including confirmed hosts and co-hosts. A `null` capacity means unlimited places.
+
+```dart
+final joinedActivityId = await supabase.rpc('join_activity', params: {
+  'p_activity_id': activityId,
+});
+```
+
+While signup is open, a confirmed user can repeat the call and receive the same ID even when the activity is full. A new signup reuses an existing `requested`, `waitlisted` or `cancelled` participation row. Organizer decisions recorded as `rejected` or `removed` block self-signup.
+
+Handle `PT409` as HTTP 409 with `details = activity_full` when all places are taken or `details = activity_closed` when the public activity cannot accept direct signups. `42501` indicates denied access, including hidden or unknown IDs.
+
 ## Test the activity API locally
 
 Apply the migrations to a disposable local Supabase database. Use two confirmed test accounts. Give one the `owner` role in a verified organization and leave the other outside it. Create a city and category for the test activity.
@@ -116,7 +130,7 @@ Apply the migrations to a disposable local Supabase database. Use two confirmed 
 python3 scripts/check_activity_access.py
 ```
 
-Each run creates, edits, publishes and cancels one activity in the local database.
+Each run creates, edits, publishes, fills and cancels one activity in the local database.
 
 ## Work on both tracks
 

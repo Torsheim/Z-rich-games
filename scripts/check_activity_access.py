@@ -155,6 +155,7 @@ def run():
         "p_starts_at": (datetime.now(timezone.utc) + timedelta(days=1)).isoformat(),
         "p_timezone": "Europe/Zurich",
         "p_place_name": "Bowling center",
+        "p_max_participants": 1,
     }, "Owner draft creation", owner)
     try:
         check(isinstance(activity_id, str), "Draft creation must return a scalar UUID.")
@@ -167,6 +168,7 @@ def run():
     draft = activity_row(rpc("get_activity", activity_args, "Owner draft lookup", owner),
                          activity_id, ("draft", "invite_only", "invitation_required"), "Owner draft lookup")
     check(draft["title"] == title, "Owner draft lookup returned the wrong title.")
+    check(draft["max_participants"] == 1, "The signup fixture must have one place.")
     check(draft["cancelled_at"] is None and draft["cancellation_reason"] is None,
           "The draft must have no cancellation metadata.")
 
@@ -235,6 +237,17 @@ def run():
     listing = rpc("list_public_activities", listing_args, "Anonymous listing after edit")
     check(listing == [summary], "Anonymous listing must return exactly the edited activity's public summary.")
 
+    denied = rpc("join_activity", activity_args, "Anonymous signup", expected=401)
+    check(isinstance(denied, dict) and denied.get("code") == "42501",
+          "Anonymous signup must fail with SQLSTATE 42501.")
+    check(rpc("join_activity", activity_args, "Unrelated user signup", outsider) == activity_id,
+          "Signup must return the activity UUID.")
+    check(rpc("join_activity", activity_args, "Unrelated user signup retry", outsider) == activity_id,
+          "An existing participant must be able to retry signup for a full activity.")
+    full = rpc("join_activity", activity_args, "Owner signup after capacity reached", owner, expected=409)
+    check(isinstance(full, dict) and (full.get("code"), full.get("details")) == ("PT409", "activity_full"),
+          "A second user must receive the activity_full conflict.")
+
     check(rpc("cancel_activity", cancel_args, "Owner cancellation", owner) == activity_id,
           "Cancellation must preserve the activity UUID.")
     cancelled = activity_row(rpc("get_activity", activity_args, "Anonymous cancelled activity lookup"),
@@ -250,6 +263,9 @@ def run():
           "Repeated cancellation must preserve the timestamp and details.")
     cancelled_listing = rpc("list_public_activities", listing_args, "Anonymous listing after cancellation")
     check_hidden_from_listing(cancelled_listing, activity_id, "cancelled")
+    closed = rpc("join_activity", activity_args, "Owner signup after cancellation", owner, expected=409)
+    check(isinstance(closed, dict) and (closed.get("code"), closed.get("details")) == ("PT409", "activity_closed"),
+          "Signup for a cancelled public activity must receive the activity_closed conflict.")
     print("Activity access smoke passed.")
 
 
