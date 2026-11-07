@@ -134,6 +134,52 @@ class _FriendsSectionState extends State<FriendsSection>
     }
   }
 
+  Future<void> _removeFriend(Map<String, dynamic> friend) async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final name = friend['username'] as String;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Remove $name as a friend?'),
+          scrollable: true,
+          content: const Text(
+            'You will be removed from each other’s friends list.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Remove friend'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+      await service.remove(friend['user_id'] as String);
+      if (!mounted) return;
+      _refresh();
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('$name removed from friends.')));
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => _error =
+              'Unable to remove friend. Check your connection and try again.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _showCode() async {
     setState(() {
       _busy = true;
@@ -280,6 +326,10 @@ class _FriendsSectionState extends State<FriendsSection>
                       child: Icon(Icons.person_outline),
                     ),
                     title: Text(friend['username'] as String),
+                    trailing: TextButton(
+                      onPressed: _busy ? null : () => _removeFriend(friend),
+                      child: const Text('Remove'),
+                    ),
                   ),
                 )
                 .toList(),

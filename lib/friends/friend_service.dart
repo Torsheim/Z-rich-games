@@ -91,6 +91,10 @@ class FriendService extends ChangeNotifier {
     await client.rpc('accept_friend_invite', params: {'invite_token': token});
   }
 
+  Future<void> remove(String userId) async {
+    await client.rpc('remove_friend', params: {'friend_user_id': userId});
+  }
+
   @override
   void dispose() {
     _links?.cancel();

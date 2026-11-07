@@ -30,13 +30,13 @@ The configuration targets a browser on this computer. A physical phone needs a r
 
 ## Friends: QR codes and invitation links
 
-On your profile, open **My QR code & link** to show your personal invitation. Another signed-in user can scan it with **Scan a QR code** or open the copied link. A dialog shows the inviter's username; **Add friend** creates one mutual friendship. Canceling or merely viewing the invitation creates nothing. No username search or direct add-by-user-ID endpoint is provided.
+On your profile, open **My QR code & link** to show your personal invitation. Another signed-in user can scan it with **Scan a QR code** or open the copied link. A dialog shows the inviter's username; **Add friend** creates one mutual friendship. Canceling or merely viewing the invitation creates nothing. **Remove** beside a friend opens a confirmation dialog; confirming ends the friendship for both people. Existing invitation links can still be used to reconnect; removal is not a block. No username search or direct add-by-user-ID endpoint is provided.
 
 Invitations are reusable for seven days. **Replace invitation** immediately revokes the previous code/link; existing friendships remain. Both users see each other under **Friends**, with realtime updates and a refresh fallback. Self-invitations, invalid/expired tokens and repeated acceptance are handled. Account deletion cascades to friendships and invitations. Only the two participants can read their friendship, and the friend-list RPC exposes usernames rather than email addresses.
 
 To test on this computer, create two users in separate browser profiles (or normal/incognito windows). Copy the first user's invitation link and open it in the second window. If signed out, sign in or register first: the invitation is stored locally and confirmation opens after login. The web link and the scanner feed the same confirmation flow. `python3 scripts/check_local_friends.py` exercises real local mutual friendships, RLS, token rotation and account deletion using disposable users.
 
-For an existing cloud backend, apply **both** files in `supabase/migrations/` in order (or use `supabase db push`). Local upgrades use `supabase migration up`; no database reset is needed.
+For an existing cloud backend, apply **all** files in `supabase/migrations/` in order (or use `supabase db push`). Local upgrades use `supabase migration up`; no database reset is needed.
 
 Browser links use the app's current address by default. Set optional `APP_PUBLIC_URL` in your Dart configuration to the deployed HTTPS app URL when sharing across devices. A localhost link only reaches this computer. Browser camera scanning requires HTTPS or localhost and camera permission. The scanner handles denied/unavailable cameras, and invitation links can also be pasted via **Open invitation link**.
 

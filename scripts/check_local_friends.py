@@ -83,6 +83,16 @@ try:
     assert rpc('accept_friend_invite', outsider[0], invite_token=token)[0] >= 400
     assert rpc('accept_friend_invite', outsider[0], invite_token=rotated[0]['token'])[0] in (200, 204)
     print('PASS: replacing invitation revokes old token without affecting existing friends')
+    assert rpc('remove_friend', None, friend_user_id=a[1])[0] >= 400
+    assert rpc('remove_friend', outsider[0], friend_user_id=b[1])[0] in (200, 204)
+    assert len(rpc('my_friends', b[0])[1]) == 1, 'Outsider must not remove A-B.'
+    assert rpc('remove_friend', b[0], friend_user_id=a[1])[0] in (200, 204)
+    assert rpc('my_friends', b[0])[1] == []
+    assert len(rpc('my_friends', a[0])[1]) == 1, 'Other friendship must remain.'
+    assert rpc('my_friends', a[0])[1][0]['user_id'] == outsider[1]
+    assert rpc('remove_friend', b[0], friend_user_id=a[1])[0] in (200, 204)
+    assert rpc('accept_friend_invite', b[0], invite_token=rotated[0]['token'])[0] in (200, 204)
+    print('PASS: removal is mutual, idempotent and restricted to the caller’s friendship')
     assert call('/functions/v1/delete-account', {'password': password}, token=a[0])[0] == 200
     accounts.remove(a)
     assert rpc('my_friends', b[0])[1] == []
