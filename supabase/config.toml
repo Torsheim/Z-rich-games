@@ -1,0 +1,23 @@
+project_id = "zurich-games"
+
+[auth]
+enabled = true
+minimum_password_length = 12
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = true
+
+[functions.delete-account]
+# The function validates the bearer token with auth.getUser itself.
+# This also supports projects using the newer signing keys.
+verify_jwt = false
+
+[auth.email.template.confirmation]
+subject = "Verify your City Together email"
+content_path = "./supabase/templates/code.html"
+
+[auth.email.template.recovery]
+subject = "Reset your City Together password"
+content_path = "./supabase/templates/code.html"
