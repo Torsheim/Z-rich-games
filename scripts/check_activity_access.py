@@ -19,6 +19,12 @@ ACTIVITY_FIELDS = {
     "timezone", "place_name", "address", "latitude", "longitude",
 }
 
+PUBLIC_SUMMARY_FIELDS = {
+    "id", "title", "organizer_id", "organizer_name", "city_id", "city_name",
+    "category_id", "category_name", "starts_at", "ends_at", "timezone",
+    "place_name", "cover_image_url", "join_policy",
+}
+
 
 class SmokeError(Exception):
     pass
@@ -145,7 +151,7 @@ def run():
     }, "Owner draft creation", owner)
     try:
         check(isinstance(activity_id, str), "Draft creation must return a scalar UUID.")
-        UUID(activity_id)
+        draft_uuid = UUID(activity_id)
     except ValueError as error:
         raise SmokeError("Draft creation must return a scalar UUID.") from error
     activity_args = {"p_activity_id": activity_id}
@@ -154,6 +160,19 @@ def run():
     draft = activity_row(rpc("get_activity", activity_args, "Owner draft lookup", owner),
                          activity_id, ("draft", "invite_only", "invitation_required"), "Owner draft lookup")
     check(draft["title"] == title, "Owner draft lookup returned the wrong title.")
+
+    # The previous UUID at the exact timestamp puts this activity first if visible.
+    listing_args = {
+        "p_city_id": draft["city_id"],
+        "p_category_id": draft["category_id"],
+        "p_limit": 1,
+        "p_after_starts_at": draft["starts_at"],
+        "p_after_activity_id": str(UUID(int=draft_uuid.int - 1)),
+    }
+    draft_listing = rpc("list_public_activities", listing_args, "Anonymous listing before publication")
+    check(isinstance(draft_listing, list) and len(draft_listing) <= 1
+          and all(isinstance(row, dict) and row.get("id") != activity_id for row in draft_listing),
+          "Anonymous listing must hide the draft and respect the page limit.")
 
     for label, token in (("Anonymous", None), ("Unrelated user", outsider)):
         hidden = rpc("get_activity", activity_args, f"{label} draft lookup", token)
@@ -175,6 +194,9 @@ def run():
     check(public["title"] == title, "Anonymous lookup returned the wrong title.")
     check(rpc("get_activity", activity_args, "Unrelated user public lookup", outsider) == [public],
           "The unrelated user must see the same public activity as an anonymous visitor.")
+    summary = {field: public[field] for field in PUBLIC_SUMMARY_FIELDS}
+    listing = rpc("list_public_activities", listing_args, "Anonymous listing after publication")
+    check(listing == [summary], "Anonymous listing must return exactly the published activity's public summary.")
     print("Activity access smoke passed.")
 
 

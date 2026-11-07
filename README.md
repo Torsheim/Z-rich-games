@@ -70,7 +70,19 @@ final activity = await supabase.rpc('get_activity', params: {
 }).maybeSingle();
 ```
 
-### Test the access rules locally
+## Public activity listing
+
+`list_public_activities` returns summaries of active public activities whose start time is at or after the request time. Visitors can call it without a user session. Results are sorted by `starts_at` and then `id`. Use the returned `id` with `get_activity` to open the activity details.
+
+```dart
+final activities = await supabase.rpc('list_public_activities', params: {
+  'p_city_id': cityId,
+});
+```
+
+Pass `p_city_id` and `p_category_id` to filter by city and category. Both filters are optional. `p_limit` defaults to 20 and accepts values from 1 to 100. For the next page, keep the same filters and pass the last row's `starts_at` string as `p_after_starts_at` and its `id` as `p_after_activity_id`. Supply both cursor values together.
+
+## Test the activity API locally
 
 Apply the migrations to a disposable local Supabase database. Use two confirmed test accounts. Give one the `owner` role in a verified organization and leave the other outside it. Create a city and category for the test activity.
 
