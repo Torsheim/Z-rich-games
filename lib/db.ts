@@ -1,7 +1,7 @@
 import "server-only";
 
 import { randomInt } from "node:crypto";
-import { Pool, type PoolClient } from "pg";
+import { Pool, type PoolClient, type PoolConfig } from "pg";
 import { AppError } from "./errors";
 import type {
   Activity,
@@ -21,11 +21,22 @@ function database() {
     throw new AppError("CityQuest’s database is not configured.", 503);
   }
   if (!pool) {
-    pool = new Pool({
+    const config: PoolConfig = {
       connectionString,
       max: process.env.VERCEL ? 1 : 5,
       connectionTimeoutMillis: 5000,
-    });
+    };
+    const ca = process.env.DATABASE_CA_CERT;
+    if (ca) {
+      const url = new URL(connectionString);
+      // Connection-string SSL options would override the explicit CA in node-postgres.
+      for (const option of ["ssl", "sslmode", "sslrootcert", "sslcert", "sslkey"]) {
+        url.searchParams.delete(option);
+      }
+      config.connectionString = url.toString();
+      config.ssl = { ca, rejectUnauthorized: true };
+    }
+    pool = new Pool(config);
     pool.on("error", (error) => console.error("Idle database connection failed", error.message));
   }
   return pool;

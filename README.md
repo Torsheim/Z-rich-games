@@ -7,7 +7,7 @@ A mobile-first web app for meeting people and exploring Zürich together. Use a 
 You need Node.js 22 or later and access to a PostgreSQL 15+ database. Supabase works without configuring Supabase Auth or enabling its Data API for CityQuest.
 
 1. Install dependencies with `npm ci`.
-2. Copy `.env.example` to `.env.local`. Set `DATABASE_URL` to your development database connection string.
+2. Copy `.env.example` to `.env.local`. Set `DATABASE_URL` to your development database connection string. When connecting to Supabase, also set `DATABASE_CA_CERT` to the PEM text of its root certificate.
 3. Apply [the initial migration](supabase/migrations/20261107000000_cityquest.sql) once. In Supabase, run it in the SQL Editor. With `psql`, run the following against the database used for development.
 
    ```sh
@@ -24,7 +24,7 @@ Run `npm run lint`, `npm run typecheck` and `npm run build` to check changes.
 
 1. Apply the same migration once to a dedicated production database.
 2. Import the GitHub repository into Vercel as a Next.js project.
-3. Set the server-side `DATABASE_URL` environment variable for Production. For Supabase on Vercel, use the [transaction pooler connection string](https://supabase.com/docs/guides/database/connecting-to-postgres#connection-pooler) with SSL. The native Supabase integration can supply `POSTGRES_URL` automatically. Use a separate database for previews.
+3. Set the server-side `DATABASE_URL` environment variable for Production. For Supabase on Vercel, use the [transaction pooler connection string](https://supabase.com/docs/guides/database/connecting-to-postgres#connection-pooler) with SSL. The native Supabase integration can supply `POSTGRES_URL` automatically. Set `DATABASE_CA_CERT` to the PEM text of the [Supabase root certificate](https://supabase.com/docs/guides/platform/ssl-enforcement) so the server can verify its TLS connection. Use a separate database for previews.
 4. Deploy and verify the flow below on the public URL.
 
 ## Try the full flow
