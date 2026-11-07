@@ -32,6 +32,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   bool _showExamples = true, _loading = true;
   int _selected = 0, _sequence = 0, _createRevision = 0;
   String? _loadError;
+  final Set<String> _responding = {};
+  final Map<String, String> _invitationErrors = {};
   RealtimeChannel? _channel;
   @override
   void initState() {
@@ -134,6 +136,37 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       if (!a.demo) unawaited(_load());
     }
     return next;
+  }
+
+  Future<void> _inlineRespond(Activity activity, String response) async {
+    if (_responding.contains(activity.id)) return;
+    setState(() {
+      _responding.add(activity.id);
+      _invitationErrors.remove(activity.id);
+    });
+    try {
+      await _respond(activity, response);
+    } on PostgrestException catch (error) {
+      if (mounted) {
+        setState(() {
+          _invitationErrors[activity.id] = error.message;
+        });
+      }
+      unawaited(_load());
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _invitationErrors[activity.id] =
+              'Could not save your response. Please try again.';
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _responding.remove(activity.id);
+        });
+      }
+    }
   }
 
   Future<Activity> _publish(
@@ -333,8 +366,15 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           );
     final pending = invitations.where((a) => a.invitation == 'pending').length;
     final plans = all
-        .where((a) => a.myStatus == 'confirmed' && a.state == 'active')
+        .where(
+          (a) =>
+              a.myStatus == 'confirmed' &&
+              a.state == 'active' &&
+              a.start.isAfter(DateTime.now()),
+        )
         .toList();
+    final next = plans.firstOrNull;
+    final later = plans.skip(1).toList();
     final drafts = all
         .where((a) => a.data['is_host'] == true && a.state == 'draft')
         .toList();
@@ -350,12 +390,22 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    Text(
+                      'Hello, ${widget.username}.',
+                      style: Theme.of(context).textTheme.headlineMedium
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 28),
                     Row(
                       children: [
                         Expanded(
                           child: Text(
                             pending > 0 ? 'New invitations' : 'Invitations',
-                            style: Theme.of(context).textTheme.titleMedium,
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(
+                                  color: const Color(0xFF275AA8),
+                                  fontWeight: FontWeight.w600,
+                                ),
                           ),
                         ),
                         if (pending > 0)
@@ -379,7 +429,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                       )
                     else
                       SizedBox(
-                        height: 154,
+                        height:
+                            148 + MediaQuery.textScalerOf(context).scale(64),
                         child: ListView.separated(
                           scrollDirection: Axis.horizontal,
                           itemCount: invitations.length,
@@ -390,7 +441,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                       ),
                     const SizedBox(height: 32),
                     Text(
-                      'Upcoming',
+                      'Next up',
                       style: Theme.of(context).textTheme.titleLarge
                           ?.copyWith(fontWeight: FontWeight.w600),
                     ),
@@ -405,7 +456,17 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                           style: TextStyle(color: Color(0xFF64736D)),
                         ),
                       ),
-                    ...plans.map((a) => _planRow(a)),
+                    if (next != null) _nextPlan(next),
+                    if (later.isNotEmpty) ...[
+                      const SizedBox(height: 28),
+                      Text(
+                        'After that',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                      const SizedBox(height: 12),
+                      ...later.map((a) => _planRow(a)),
+                    ],
                     if (drafts.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 16),
@@ -450,58 +511,195 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     ),
   );
 
-  Widget _invitationCard(Activity a) => SizedBox(
-    width: 164,
-    child: Material(
-      color: const Color(0xFFEAF1EC),
-      borderRadius: BorderRadius.circular(18),
-      child: InkWell(
+  Widget _invitationCard(Activity a) {
+    final busy = _responding.contains(a.id);
+    final error = _invitationErrors[a.id];
+    const blue = Color(0xFF275AA8);
+    return SizedBox(
+      key: ValueKey('invite-${a.id}'),
+      width: 260,
+      child: Material(
+        color: const Color(0xFFE7F0FF),
         borderRadius: BorderRadius.circular(18),
-        onTap: () => _open(a),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              CircleAvatar(
-                radius: 19,
-                backgroundColor: Colors.white,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: busy ? null : () => _open(a),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  height: MediaQuery.textScalerOf(context).scale(44),
+                  child: Align(
+                    alignment: Alignment.topLeft,
+                    child: Text(
+                      a.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                        height: 1.25,
+                        color: Color(0xFF193D72),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'From ${a.host}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF42618B),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: blue,
+                          minimumSize: const Size(0, 40),
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                        ),
+                        onPressed: busy || a.full
+                            ? null
+                            : () => _inlineRespond(a, 'attend'),
+                        child: const Text(
+                          'Accept',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: blue,
+                          side: const BorderSide(color: Color(0xFF9BB9E5)),
+                          minimumSize: const Size(0, 40),
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                        ),
+                        onPressed: busy || a.invitation == 'declined'
+                            ? null
+                            : () => _inlineRespond(a, 'decline'),
+                        child: const Text(
+                          'Decline',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: Text(
+                    error ??
+                        (busy
+                            ? 'Saving…'
+                            : [
+                                if (a.invitation == 'declined') 'Declined',
+                                if (a.full) 'Currently full',
+                                if (a.demo) 'Example',
+                              ].join(' · ')),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: error == null
+                          ? const Color(0xFF42618B)
+                          : Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _nextPlan(Activity a) => Material(
+    key: ValueKey('next-${a.id}'),
+    color: Colors.white,
+    borderRadius: BorderRadius.circular(22),
+    child: InkWell(
+      borderRadius: BorderRadius.circular(22),
+      onTap: () => _open(a),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              a.title,
+              style: Theme.of(context).textTheme.headlineSmall
+                  ?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.schedule, size: 20, color: Color(0xFF196C5D)),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    a.when,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.place_outlined,
+                  size: 20,
+                  color: Color(0xFF196C5D),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    a.place,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Color(0xFF64736D),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (a.demo || a.data['is_host'] == true)
+              Padding(
+                padding: const EdgeInsets.only(top: 16),
                 child: Text(
-                  a.host.substring(0, 1).toUpperCase(),
-                  style: const TextStyle(color: Color(0xFF196C5D)),
+                  [
+                    if (a.data['is_host'] == true) 'You’re hosting',
+                    if (a.demo) 'Example',
+                  ].join(' · '),
+                  style: const TextStyle(fontSize: 11, color: Colors.black45),
                 ),
               ),
-              const SizedBox(height: 10),
-              Text(
-                a.host,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                a.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12, color: Color(0xFF64736D)),
-              ),
-              const Spacer(),
-              Text(
-                a.invitation == 'pending'
-                    ? (a.demo ? 'Invited you · Example' : 'Invited you')
-                    : 'Not going · tap to change',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 10, color: Color(0xFF64736D)),
-              ),
-            ],
-          ),
+          ],
         ),
       ),
     ),
   );
 
   Widget _planRow(Activity a, {bool public = false}) => Padding(
+    key: ValueKey('plan-${a.id}'),
     padding: const EdgeInsets.only(bottom: 12),
     child: Material(
       color: Colors.white,

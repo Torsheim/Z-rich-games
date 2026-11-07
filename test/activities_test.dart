@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -26,6 +28,8 @@ class FakeActivities extends ActivityService {
       );
   final List<Activity> rows = [];
   int creates = 0, responses = 0, publishes = 0;
+  Completer<String>? pendingResponse;
+  bool responseFails = false;
   List<String> invited = [];
   @override
   RealtimeChannel? watch(VoidCallback changed) => null;
@@ -55,7 +59,18 @@ class FakeActivities extends ActivityService {
   @override
   Future<String> respond(String id, String response) async {
     responses++;
-    return 'confirmed';
+    if (responseFails) throw Exception('offline');
+    final result = pendingResponse == null
+        ? (response == 'decline' ? 'cancelled' : 'confirmed')
+        : await pendingResponse!.future;
+    final index = rows.indexWhere((a) => a.id == id);
+    if (index >= 0) {
+      rows[index] = rows[index].withData({
+        'my_status': result,
+        'invite_status': response == 'decline' ? 'declined' : 'accepted',
+      });
+    }
+    return result;
   }
 
   @override
@@ -115,6 +130,143 @@ void main() {
       expect(find.text('Darts, drinks & new faces'), findsOneWidget);
       await tapText(tester, 'Profile');
       expect(find.text('Profile content'), findsOneWidget);
+    },
+  );
+  testWidgets(
+    'Welcome, direct invitation actions and a single prominent next plan',
+    (tester) async {
+      final service = FakeActivities();
+      await tester.pumpWidget(shell(service));
+      await tester.pumpAndSettle();
+      expect(find.text('Hello, alex.'), findsOneWidget);
+      expect(find.byKey(const ValueKey('next-example-3')), findsOneWidget);
+      expect(find.byKey(const ValueKey('plan-example-3')), findsNothing);
+      final card = find.byKey(const ValueKey('invite-example-1'));
+      final accept = find.descendant(
+        of: card,
+        matching: find.widgetWithText(FilledButton, 'Accept'),
+      );
+      await tester.ensureVisible(accept);
+      await tester.pumpAndSettle();
+      await tester.tap(accept);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('invite-example-1')), findsNothing);
+      expect(find.byKey(const ValueKey('next-example-1')), findsOneWidget);
+      expect(find.byKey(const ValueKey('plan-example-3')), findsOneWidget);
+      expect(
+        find.text('Example activity'),
+        findsNothing,
+        reason: 'Direct replies stay on Home.',
+      );
+      final full = find.byKey(const ValueKey('invite-example-2'));
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.descendant(
+                of: full,
+                matching: find.widgetWithText(FilledButton, 'Accept'),
+              ),
+            )
+            .onPressed,
+        isNull,
+      );
+      final decline = find.descendant(
+        of: full,
+        matching: find.widgetWithText(OutlinedButton, 'Decline'),
+      );
+      await tester.ensureVisible(decline);
+      await tester.pumpAndSettle();
+      await tester.tap(decline);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Declined'), findsOneWidget);
+      expect(service.responses, 0);
+    },
+  );
+  testWidgets(
+    'Direct replies prevent double submission and can recover from a failure',
+    (tester) async {
+      final service = FakeActivities();
+      service.rows.add(
+        Activity({
+          ...exampleActivities('test-id').first.data,
+          'id': 'real-invite',
+          'demo': false,
+          'title': 'A real invitation',
+        }),
+      );
+      service.responseFails = true;
+      await tester.pumpWidget(shell(service));
+      await tester.pumpAndSettle();
+      final card = find.byKey(const ValueKey('invite-real-invite'));
+      var accept = find.descendant(
+        of: card,
+        matching: find.widgetWithText(FilledButton, 'Accept'),
+      );
+      await tester.ensureVisible(accept);
+      await tester.pumpAndSettle();
+      await tester.tap(accept);
+      await tester.pumpAndSettle();
+      expect(service.responses, 1);
+      expect(
+        find.textContaining('Could not save your response.'),
+        findsOneWidget,
+      );
+      service.responseFails = false;
+      service.pendingResponse = Completer<String>();
+      await tester.tap(accept);
+      await tester.pumpAndSettle();
+      expect(service.responses, 2);
+      expect(tester.widget<FilledButton>(accept).onPressed, isNull);
+      final decline = find.descendant(
+        of: card,
+        matching: find.widgetWithText(OutlinedButton, 'Decline'),
+      );
+      expect(tester.widget<OutlinedButton>(decline).onPressed, isNull);
+      await tester.tap(accept);
+      await tester.pumpAndSettle();
+      expect(service.responses, 2);
+      service.pendingResponse!.complete('confirmed');
+      await tester.pumpAndSettle();
+      expect(card, findsNothing);
+      expect(
+        find.textContaining('Could not save your response.'),
+        findsNothing,
+      );
+      expect(find.byKey(const ValueKey('next-real-invite')), findsOneWidget);
+    },
+  );
+  testWidgets(
+    'Next plan is the earliest future confirmation; the rest remain chronological',
+    (tester) async {
+      final service = FakeActivities();
+      final base = exampleActivities('test-id')[2];
+      for (final item in [
+        ('late', 3),
+        ('early', 1),
+        ('middle', 2),
+        ('past', -1),
+      ]) {
+        service.rows.add(
+          base.withData({
+            'id': item.$1,
+            'title': 'Plan ${item.$1}',
+            'demo': false,
+            'starts_at': DateTime.now()
+                .add(Duration(hours: item.$2))
+                .toUtc()
+                .toIso8601String(),
+          }),
+        );
+      }
+      await tester.pumpWidget(shell(service));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('next-early')), findsOneWidget);
+      expect(find.byKey(const ValueKey('plan-early')), findsNothing);
+      expect(find.text('Plan past'), findsNothing);
+      expect(
+        tester.getTopLeft(find.byKey(const ValueKey('plan-middle'))).dy,
+        lessThan(tester.getTopLeft(find.byKey(const ValueKey('plan-late'))).dy),
+      );
     },
   );
   testWidgets('Full invitations cannot be accepted but can be declined', (
