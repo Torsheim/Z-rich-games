@@ -49,7 +49,10 @@ class _FriendsSectionState extends State<FriendsSection>
   }
 
   void _refresh() {
-    setState(() => _friends = service.list());
+    final next = service.list();
+    setState(() {
+      _friends = next;
+    });
   }
 
   void _incoming() {

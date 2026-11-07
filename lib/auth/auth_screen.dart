@@ -259,7 +259,12 @@ class _AuthScreenState extends State<AuthScreen> {
             TextButton(
               onPressed: _busy
                   ? null
-                  : () => setState(() => _profile = auth.profile()),
+                  : () {
+                      final next = auth.profile();
+                      setState(() {
+                        _profile = next;
+                      });
+                    },
               child: const Text('Try again'),
             ),
             TextButton(

@@ -17,8 +17,13 @@ class FakeFriends extends FriendService {
   bool removalFails = false;
   bool self = false;
   bool invalid = false;
+  VoidCallback? onFriendChange;
   @override
-  RealtimeChannel? watchFriends(VoidCallback changed) => null;
+  RealtimeChannel? watchFriends(VoidCallback changed) {
+    onFriendChange = changed;
+    return null;
+  }
+
   @override
   Future<List<Map<String, dynamic>>> list() async => accepts == 0
       ? []
@@ -149,6 +154,33 @@ void main() {
       findsOneWidget,
     );
   });
+  testWidgets(
+    'Realtime and manual refresh update the list without framework errors',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: FriendsSection(service: friends),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      friends.accepts = 1;
+      friends.onFriendChange!();
+      await tester.pumpAndSettle();
+      expect(find.text('sam'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      friends.accepts = 0;
+      final refresh = find.byTooltip('Refresh friends');
+      await tester.ensureVisible(refresh);
+      await tester.tap(refresh);
+      await tester.pumpAndSettle();
+      expect(find.text('sam'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
   testWidgets('Removing requires confirmation and refreshes the friends list', (
     tester,
   ) async {
@@ -176,6 +208,8 @@ void main() {
     await helpers.tapText(tester, 'Remove');
     await helpers.tapText(tester, 'Remove friend');
     expect(friends.removals, 1);
+    expect(find.textContaining('Unable to remove friend.'), findsNothing);
+    expect(find.text('sam removed from friends.'), findsOneWidget);
     expect(find.text('sam'), findsNothing);
     expect(find.textContaining('No friends yet.'), findsOneWidget);
   });
@@ -200,6 +234,9 @@ void main() {
     await tester.pumpAndSettle();
     await helpers.tapText(tester, 'Add friend');
     expect(friends.accepts, 1);
+    expect(find.textContaining('Unable to open or accept'), findsNothing);
+    expect(find.text('You and sam are now friends.'), findsOneWidget);
+    expect(friends.pendingToken, isNull);
     expect(find.text('sam'), findsOneWidget);
     await friends.receive(Uri.parse(friends.linkFor(token)));
     await tester.pumpAndSettle();
