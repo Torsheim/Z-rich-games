@@ -27,12 +27,38 @@ Keep the same `activity_id` when the visibility changes. Update visibility and j
 
 ## Integration rules for the next backend changes
 
-- Use the signed-in user's ID for authorization. The creator field is provenance. Management rights come from the personal organizer's user or the organization's membership, subject to the operation's role checks. The organization publishing flow will also check `verified_at`.
+- Use the signed-in user's ID for authorization. The creator field is provenance. Management rights come from the personal organizer's user or the organization's membership, subject to the operation's role checks. Publishing for an organization requires its `verified_at` to be set.
 - Treat a draft as organizer-only. Public discovery selects active public activities. Invitation-only detail access comes from organizer authority, an eligible invitation or confirmed participation. Expose a confirmed count separately from the participant list.
 - In the transaction that confirms a participant or changes capacity, lock the activity first. Count only `confirmed` rows. Use that same lock order for invitation acceptance and visibility changes. Accept an invitation and confirm participation together, and expire stale pending invitations before issuing a replacement.
 - When changing an activity to invitation-only, keep confirmed participants and existing invitations. Reject pending public participation requests in that same operation.
 
 The foundation enables row-level security and removes direct table access for the application roles. Add narrow grants and policies alongside the operations that need them.
+
+## Organizer publishing
+
+- `create_activity_draft` creates an `invite_only` draft with `invitation_required` and returns its UUID. A verified organization's owner, admin or editor can call it. Pass a description even if it is an empty string.
+- `publish_activity` takes the draft UUID and returns the same UUID. An owner or admin of the activity's verified organization can publish once the description is nonblank. The call sets `status = active`, `visibility = public` and `join_policy = instant` atomically. Repeating the call in that state returns the UUID without updating the activity.
+
+The Flutter example uses a Supabase client with a signed-in owner or admin session. Supply `organizerId`, `categoryId` and `cityId` from existing fixtures, with `verified_at` set on the organization.
+
+```dart
+final activityId = await supabase.rpc('create_activity_draft', params: {
+  'p_organizer_id': organizerId,
+  'p_title': 'Bowling night',
+  'p_description': 'Meet at the front desk.',
+  'p_category_id': categoryId,
+  'p_starts_at': DateTime.now().toUtc().add(const Duration(days: 1)).toIso8601String(),
+  'p_timezone': 'Europe/Zurich',
+  'p_city_id': cityId,
+  'p_place_name': 'Bowling center',
+});
+
+final publishedId = await supabase.rpc('publish_activity', params: {
+  'p_activity_id': activityId,
+});
+```
+
+The draft call also accepts `p_ends_at`, `p_address`, `p_latitude`, `p_longitude`, `p_max_participants` and `p_cover_image_url`. Public lookup belongs to a separate operation.
 
 ## Work on both tracks
 
