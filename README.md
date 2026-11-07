@@ -29,7 +29,7 @@ Keep the same `activity_id` when the visibility changes. Update visibility and j
 
 - Use the signed-in user's ID for authorization. The creator field is provenance. Management rights come from the personal organizer's user or the organization's membership, subject to the operation's role checks. Publishing for an organization requires its `verified_at` to be set.
 - Treat a draft as organizer-only. Public discovery selects active public activities. Invitation-only detail access comes from organizer authority, an eligible invitation or confirmed participation. Expose a confirmed count separately from the participant list.
-- In the transaction that confirms a participant or changes capacity, lock the activity first. Count only `confirmed` rows. When confirming a participant, update the locked activity row in the same transaction so a stale snapshot cannot reuse capacity. Use that same lock order for invitation acceptance and visibility changes. Accept an invitation and confirm participation together, and expire stale pending invitations before issuing a replacement.
+- In the transaction that confirms or withdraws a participant or changes capacity, lock the activity first. Count only `confirmed` rows. When changing participation, update the locked activity row in the same transaction so a stale snapshot cannot reuse capacity. Use that same lock order for invitation acceptance and visibility changes. Accept an invitation and confirm participation together, and expire stale pending invitations before issuing a replacement.
 - When changing an activity to invitation-only, keep confirmed participants and existing invitations. Reject pending public participation requests in that same operation.
 
 The foundation enables row-level security and removes direct table access for the application roles. Add narrow grants and policies alongside the operations that need them.
@@ -118,6 +118,22 @@ While signup is open, a confirmed user can repeat the call and receive the same 
 
 Handle `PT409` as HTTP 409 with `details = activity_full` when all places are taken or `details = activity_closed` when the public activity cannot accept direct signups. `42501` indicates denied access, including hidden or unknown IDs.
 
+## Withdrawal and availability
+
+`leave_activity` withdraws the signed-in user's `confirmed`, `requested` or `waitlisted` participation before an active activity starts. It returns the activity ID and records `cancelled` on the existing row. A repeat call for an already withdrawn participation returns the same ID. Withdrawing a confirmed place makes it available in the same transaction.
+
+`get_my_activity_participation` returns the signed-in user's participation status or `null` if they have no record for the activity.
+
+```dart
+final participationStatus = await supabase.rpc('get_my_activity_participation', params: {
+  'p_activity_id': activityId,
+});
+
+await supabase.rpc('leave_activity', params: {'p_activity_id': activityId});
+```
+
+The public activity detail includes `available_places` for upcoming active public activities with a capacity limit. A value of `0` means full. The field is `null` for unlimited capacity and when the activity is outside that scope. Availability reflects the time of the lookup. `join_activity` checks capacity again when confirming a place.
+
 ## Test the activity API locally
 
 Apply the migrations to a disposable local Supabase database. Use two confirmed test accounts. Give one the `owner` role in a verified organization and leave the other outside it. Create a city and category for the test activity.
@@ -130,7 +146,7 @@ Apply the migrations to a disposable local Supabase database. Use two confirmed 
 python3 scripts/check_activity_access.py
 ```
 
-Each run creates, edits, publishes, fills and cancels one activity in the local database.
+Each run creates, edits and publishes one activity, checks signup, withdrawal and availability, then cancels the activity in the local database.
 
 ## Work on both tracks
 
