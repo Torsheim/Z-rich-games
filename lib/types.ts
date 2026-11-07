@@ -15,6 +15,20 @@ export type User = {
   displayName: string;
 };
 
+export type Profile = User & {
+  username: string;
+  bio: string;
+};
+
+export type SessionUser = User & {
+  username: string | null;
+  bio: string;
+};
+
+export type Participant = User & {
+  username: string | null;
+};
+
 export type CreateActivityInput = {
   title: string;
   category: Category;
@@ -34,7 +48,7 @@ export type Activity = CreateActivityInput & {
 };
 
 export type ActivityDetail = Activity & {
-  participants: User[];
+  participants: Participant[];
 };
 
 export type GameStatus = "lobby" | "active" | "finished";

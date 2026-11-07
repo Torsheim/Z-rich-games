@@ -33,7 +33,7 @@ h1, h2, h3 { line-height: 1.04; letter-spacing: -.055em; font-weight: 800; }
 .cq-brand-icon { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; background: var(--pine); color: var(--lime); }
 .cq-brand-dot { color: var(--orange); }
 .cq-header-place { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: .83rem; font-weight: 700; }
-.cq-user { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 170px; color: var(--ink); font-size: .85rem; font-weight: 700; }
+.cq-user { display: flex; min-height: 44px; align-items: center; gap: 8px; min-width: 0; max-width: 170px; color: var(--ink); font-size: .85rem; font-weight: 700; }
 .cq-user > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cq-avatar { display: grid; place-items: center; width: 34px; height: 34px; flex: none; border-radius: 50%; background: var(--soft-green); color: var(--pine); font-size: .8rem; font-weight: 800; text-transform: uppercase; }
 .cq-nav { position: fixed; z-index: 5; inset: auto 0 0; display: flex; justify-content: center; gap: 8px; padding: 8px 14px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--surface); }
@@ -176,4 +176,29 @@ textarea.cq-input { min-height: 100px; resize: vertical; }
   .cq-hero { padding-inline: 45px; }
   .cq-explore-grid { grid-template-columns: minmax(0, 1fr) 315px; gap: 28px; }
   .cq-code-card { padding: 23px; }
+}
+
+.cq-profile-view { display: grid; align-content: start; gap: 14px; max-width: 610px; margin-inline: auto; }
+.cq-profile-view .cq-view-title { margin-bottom: 0; }
+.cq-profile-view > .cq-button { justify-self: start; }
+.cq-profile-view .cq-back { justify-self: start; margin-bottom: 0; }
+.cq-profile-view .cq-message { margin: 0; }
+.cq-profile-card { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; }
+.cq-profile-identity { display: flex; align-items: center; gap: 12px; min-width: 0; overflow-wrap: anywhere; }
+.cq-profile-avatar { width: 52px; height: 52px; background: var(--pine); color: var(--lime); font-size: 1rem; }
+.cq-profile-identity h1, .cq-profile-identity h2 { font-size: clamp(1.45rem, 4vw, 2rem); }
+.cq-profile-identity p { margin-top: 4px; color: var(--muted); font-size: .87rem; }
+.cq-profile-access, .cq-profile-form { display: grid; gap: 14px; }
+.cq-profile-form .cq-button { justify-self: start; }
+.cq-profile-switch { display: flex; flex-wrap: wrap; gap: 8px; }
+.cq-profile-switch [aria-pressed="true"] { border-color: var(--pine); background: var(--soft-green); color: var(--pine); }
+.cq-profile-note { color: var(--muted); font-size: .87rem; }
+.cq-profile-link { color: var(--pine); font-weight: 750; text-decoration: underline; text-underline-offset: 3px; }
+.cq-profile-access > .cq-profile-link { justify-self: start; font-size: .87rem; }
+.cq-profile-success { padding: 10px 12px; border-radius: 10px; background: var(--soft-green); color: var(--pine); font-size: .9rem; }
+.cq-profile-bio { margin-top: 16px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+@media (max-width: 380px) {
+  .cq-nav { gap: 4px; padding-inline: 8px; }
+  .cq-nav-item { padding-inline: 4px; font-size: .7rem; }
 }

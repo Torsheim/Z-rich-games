@@ -9,6 +9,8 @@ import type {
   CreateActivityInput,
   GameStatus,
   GameView,
+  Profile,
+  SessionUser,
   User,
 } from "./types";
 
@@ -63,21 +65,142 @@ async function transaction<T>(work: (client: PoolClient) => Promise<T>): Promise
   }
 }
 
-export async function createSession(displayName: string, tokenDigest: string): Promise<User> {
+export async function createSession(displayName: string, tokenDigest: string): Promise<SessionUser> {
   const result = await database().query<User>(
     `insert into cityquest.users (display_name, token_hash) values ($1, $2)
      returning id, display_name as "displayName"`,
     [displayName, tokenDigest],
   );
-  return result.rows[0];
+  return { ...result.rows[0], username: null, bio: "" };
 }
 
-export async function getSession(tokenDigest: string): Promise<User | null> {
+export async function getSession(tokenDigest: string): Promise<SessionUser | null> {
   const result = await database().query<User>(
     'select id, display_name as "displayName" from cityquest.users where token_hash = $1',
     [tokenDigest],
   );
+  const user = result.rows[0];
+  return user ? { ...user, username: null, bio: "" } : null;
+}
+
+const profileColumns = `u.id, u.display_name as "displayName", p.username, p.bio`;
+const profileFrom = `from cityquest.profiles p join cityquest.users u on u.id = p.user_id`;
+
+export async function getAccountSession(tokenDigest: string): Promise<Profile | null> {
+  const result = await database().query<Profile>(
+    `select ${profileColumns} ${profileFrom}
+     join cityquest.account_sessions s on s.user_id = u.id
+     where s.token_hash = $1 and s.expires_at > now()`,
+    [tokenDigest],
+  );
   return result.rows[0] ?? null;
+}
+
+export async function getPublicProfile(userId: string): Promise<Profile> {
+  const result = await database().query<Profile>(
+    `select ${profileColumns} ${profileFrom} where u.id = $1`,
+    [userId],
+  );
+  const profile = result.rows[0];
+  if (!profile) throw new AppError("Profile not found.", 404);
+  return profile;
+}
+
+type ProfileInput = Pick<Profile, "username" | "displayName" | "bio"> & { passwordHash: string };
+type GuestIdentity = { id: string; tokenDigest: string };
+
+export async function registerProfile(
+  input: ProfileInput,
+  sessionDigest: string,
+  guest?: GuestIdentity,
+): Promise<Profile> {
+  return transaction(async (client) => {
+    // Claim the same user row so memberships, teams and hosted activities carry over.
+    const userResult = guest
+      ? await client.query<User>(
+          `update cityquest.users set display_name = $1, token_hash = null
+           where id = $2 and token_hash = $3 returning id, display_name as "displayName"`,
+          [input.displayName, guest.id, guest.tokenDigest],
+        )
+      : await client.query<User>(
+          `insert into cityquest.users (display_name) values ($1)
+           returning id, display_name as "displayName"`,
+          [input.displayName],
+        );
+    const user = userResult.rows[0];
+    if (!user) throw new AppError("Your guest session has changed. Refresh and try again.", 409);
+
+    const profileResult = await client.query<Pick<Profile, "username" | "bio">>(
+      `insert into cityquest.profiles (user_id, username, bio, password_hash) values ($1, $2, $3, $4)
+       on conflict (username) do nothing returning username, bio`,
+      [user.id, input.username, input.bio, input.passwordHash],
+    );
+    const profile = profileResult.rows[0];
+    if (!profile) throw new AppError("That username is already taken.", 409);
+
+    await client.query(
+      "insert into cityquest.account_sessions (token_hash, user_id) values ($1, $2)",
+      [sessionDigest, user.id],
+    );
+    return { ...user, ...profile };
+  });
+}
+
+export async function profileCredentials(username: string): Promise<{ id: string; passwordHash: string } | null> {
+  const result = await database().query<{ id: string; passwordHash: string }>(
+    'select user_id as id, password_hash as "passwordHash" from cityquest.profiles where username = $1',
+    [username],
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function createAccountSession(userId: string, tokenDigest: string): Promise<Profile> {
+  const result = await database().query<Profile>(
+    `with expired as (
+       delete from cityquest.account_sessions where user_id = $1 and expires_at <= now()
+     ), session as (
+       insert into cityquest.account_sessions (token_hash, user_id)
+       select $2, user_id from cityquest.profiles where user_id = $1
+       returning user_id
+     )
+     select ${profileColumns} ${profileFrom} join session s on s.user_id = u.id`,
+    [userId, tokenDigest],
+  );
+  const profile = result.rows[0];
+  if (!profile) throw new AppError("Username or password is incorrect.", 401);
+  return profile;
+}
+
+export async function revokeAccountSession(tokenDigest: string): Promise<void> {
+  await database().query("delete from cityquest.account_sessions where token_hash = $1", [tokenDigest]);
+}
+
+export async function updateProfile(userId: string, input: Pick<Profile, "displayName" | "bio">): Promise<Profile> {
+  const result = await database().query<Profile>(
+    `with profile as (
+       update cityquest.profiles set bio = $3 where user_id = $1 returning user_id, username, bio
+     )
+     update cityquest.users u set display_name = $2
+     from profile p where u.id = p.user_id
+     returning ${profileColumns}`,
+    [userId, input.displayName, input.bio],
+  );
+  const profile = result.rows[0];
+  if (!profile) throw new AppError("Profile not found.", 404);
+  return profile;
+}
+
+export async function consumeAuthAttempt(key: string, limit: number): Promise<boolean> {
+  const result = await database().query<{ allowed: boolean }>(
+    `insert into cityquest.auth_rate_limits as rate (key, attempts, expires_at)
+     values ($1, 1, now() + interval '15 minutes')
+     on conflict (key) do update set
+       attempts = case when rate.expires_at <= now() then 1 else least(rate.attempts, $2) + 1 end,
+       expires_at = case when rate.expires_at <= now() then excluded.expires_at else rate.expires_at end
+     returning attempts <= $2 as allowed`,
+    [key, limit],
+  );
+  return result.rows[0].allowed;
 }
 
 type ActivityRow = Omit<Activity, "startsAt"> & { startsAt: Date };
@@ -133,10 +256,11 @@ export async function getActivity(id: string, userId: string | null): Promise<Ac
      ${activityFrom}
      cross join lateral (
        select count(*)::int as count, coalesce(bool_or(p.user_id = $1), false) as joined,
-         coalesce(json_agg(json_build_object('id', u.id, 'displayName', u.display_name)
+         coalesce(json_agg(json_build_object('id', u.id, 'displayName', u.display_name, 'username', profile.username)
            order by p.joined_at, u.id), '[]'::json) as participants
        from cityquest.activity_participants p
        join cityquest.users u on u.id = p.user_id
+       left join cityquest.profiles profile on profile.user_id = u.id
        where p.activity_id = a.id
      ) stats
      where a.id = $2`,

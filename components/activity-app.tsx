@@ -2,18 +2,20 @@
 
 import {
   ArrowLeft, ArrowRight, CalendarDays, Check, CirclePlus, Compass, Coffee,
-  Footprints, MapPin, Search, Sparkles, Ticket, Trophy, Users, Volleyball,
+  Footprints, MapPin, Search, Sparkles, Ticket, Trophy, UserRound, Users, Volleyball,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type FormEvent, type RefObject } from "react";
-import { categories, type Activity, type ActivityDetail, type Category, type User } from "@/lib/types";
+import { categories, type Activity, type ActivityDetail, type Category, type Profile, type SessionUser, type User } from "@/lib/types";
 import { GamePanel } from "./game-panel";
+import { ProfilePanel, PublicProfilePanel, type ProfileAction } from "./profile-panel";
 
 type View =
-  | { page: "explore" | "create" | "mine" }
+  | { page: "explore" | "create" | "mine" | "profile" }
+  | { page: "public-profile"; profileId: string }
   | { page: "activity"; activityId: string }
   | { page: "game"; gameId: string; activityId: string };
 
-type Dashboard = { user: User | null; activities: Activity[]; mine: Activity[] };
+type Dashboard = { user: SessionUser | null; activities: Activity[]; mine: Activity[] };
 type DetailResult = { id: string; activity: ActivityDetail } | { id: string; error: string };
 type ActivityAction = "joinActivity" | "leaveActivity" | "cancelActivity";
 type FormSubmit = (event: FormEvent<HTMLFormElement>) => void;
@@ -24,6 +26,7 @@ const navigation = [
   { page: "explore", label: "Explore", icon: Compass },
   { page: "create", label: "Create", icon: CirclePlus },
   { page: "mine", label: "My activities", icon: CalendarDays },
+  { page: "profile", label: "Profile", icon: UserRound },
 ] as const;
 const categoryIcons = {
   outdoors: Footprints,
@@ -48,7 +51,8 @@ function readView(): View {
   const [page, id, activityId] = window.location.hash.slice(1).split("/");
   if (page === "activity" && id) return { page, activityId: id };
   if (page === "game" && id && activityId) return { page, gameId: id, activityId };
-  if (page === "mine" || page === "create") return { page };
+  if (page === "profile" && id) return { page: "public-profile", profileId: id };
+  if (page === "mine" || page === "create" || page === "profile") return { page };
   return { page: "explore" };
 }
 
@@ -71,6 +75,11 @@ async function request<T>(suffix = "", body?: object, signal?: AbortSignal): Pro
     throw new Error(data?.error || "CityQuest couldn't load. Please try again.");
   }
   return data;
+}
+
+async function loadPublicProfile(id: string, signal: AbortSignal) {
+  const { profile } = await request<{ profile: Profile }>(`?profileId=${encodeURIComponent(id)}`, undefined, signal);
+  return profile;
 }
 
 function errorMessage(error: unknown) {
@@ -103,10 +112,10 @@ function Header({ view, user }: { view: View; user: User | null }) {
           ))}
         </nav>
         {user ? (
-          <div className="cq-user" title={user.displayName}>
+          <a className="cq-user" href="#profile" aria-label="Open your profile" title={user.displayName}>
             <span className="cq-avatar" aria-hidden="true">{initials(user.displayName)}</span>
             <span>{user.displayName}</span>
-          </div>
+          </a>
         ) : <span className="cq-header-place"><MapPin size={16} aria-hidden="true" /> Zürich, CH</span>}
       </div>
     </header>
@@ -136,7 +145,7 @@ function IdentityForm({ inputRef, onSubmit, busy }: {
         <span className="cq-feature-icon"><Users size={22} aria-hidden="true" /></span>
         <div>
           <strong>New to CityQuest?</strong>
-          <p>Add a display name to join or host an activity.</p>
+          <p>Pick a display name to continue as a guest, or <a className="cq-profile-link" href="#profile">create a profile or log in</a>.</p>
         </div>
       </div>
       <form className="cq-inline-form" onSubmit={onSubmit}>
@@ -385,7 +394,12 @@ function ActivityDetails({ activity, user, busy, onAction }: {
             {activity.participants.map((participant) => (
               <li key={participant.id}>
                 <span className="cq-avatar" aria-hidden="true">{initials(participant.displayName)}</span>
-                <span>{participant.displayName} {participant.id === user?.id && <span className="cq-person-note">(you)</span>}</span>
+                <span>
+                  {participant.username ? (
+                    <a className="cq-profile-link" href={`#profile/${participant.id}`}>{participant.displayName}</a>
+                  ) : participant.displayName}
+                  {participant.id === user?.id && <span className="cq-person-note"> (you)</span>}
+                </span>
               </li>
             ))}
           </ul>
@@ -492,12 +506,33 @@ export function ActivityApp() {
     }
   }
 
+  function updateSession(nextUser: SessionUser | null) {
+    ++dashboardRequest.current;
+    setDashboard((current) => {
+      if (!current) return current;
+      if (current.user?.id === nextUser?.id) return { ...current, user: nextUser };
+
+      return {
+        user: nextUser,
+        activities: current.activities.map((activity) => ({ ...activity, joined: false, isHost: false })),
+        mine: [],
+      };
+    });
+  }
+
+  async function profileAction(action: ProfileAction) {
+    const { user: updated } = await request<{ user: SessionUser | null }>("", action);
+    updateSession(updated);
+    setDetail(null);
+    await Promise.all([refreshDashboard(), activityId ? refreshDetail(activityId) : undefined]);
+  }
+
   function submitIdentity(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     void mutate(async () => {
-      const { user: identified } = await request<{ user: User }>("", { action: "identify", displayName: textField(form, "displayName") });
-      setDashboard((current) => current ? { ...current, user: identified } : current);
+      const { user: identified } = await request<{ user: SessionUser }>("", { action: "identify", displayName: textField(form, "displayName") });
+      updateSession(identified);
       await Promise.all([refreshDashboard(), activityId ? refreshDetail(activityId) : undefined]);
     }, false);
   }
@@ -614,6 +649,15 @@ export function ActivityApp() {
                 user={user} busy={busy} onAction={activityAction} />
             )}
           </div>
+        )}
+        {view.page === "profile" && (
+          <>
+            {notices}
+            {dashboard && <ProfilePanel user={user} onAction={profileAction} />}
+          </>
+        )}
+        {view.page === "public-profile" && (
+          <PublicProfilePanel key={view.profileId} profileId={view.profileId} loadProfile={loadPublicProfile} />
         )}
         {view.page === "game" && (
           <>
